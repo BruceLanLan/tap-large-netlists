@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+# forge-std is installed locally (see contracts/lib/README.md), not committed
+contracts/lib/forge-std
+
+# Local state
+.env
+.env.*
+.DS_Store

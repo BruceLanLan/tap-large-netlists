@@ -1,0 +1,66 @@
+case,execGas,calldataBytes,calldataGas,txEstimate,floor7623,pctOf16777216,pctOf30M
+"nandLocal single record budget=(1,256,8) | gates=1 ext=1 chunkCost=1 chunksRead=1 records=1 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",37538,612,3780,62318,30450,37,20
+"nandLocal budget=(500,256,64) | gates=500 ext=1 chunkCost=1 chunksRead=1 records=500 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",393852,612,3816,418668,30540,249,139
+"nandLocal budget=(1000,256,64) | gates=1000 ext=1 chunkCost=1 chunksRead=1 records=1000 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",741122,612,3816,765938,30540,456,255
+"nandLocal budget=(2000,256,64) | gates=2000 ext=1 chunkCost=1 chunksRead=1 records=2000 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",1438694,612,3804,1463498,30510,872,487
+"nandLocal budget=(4000,256,64) | gates=4000 ext=1 chunkCost=2 chunksRead=2 records=4000 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",2848430,612,3816,2873246,30540,1712,957
+"nandLocal budget=(5000,256,64) | gates=5000 ext=1 chunkCost=3 chunksRead=3 records=5000 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",3559351,612,3816,3584167,30540,2136,1194
+"nandLocal budget=(6000,256,64) | gates=6000 ext=1 chunkCost=3 chunksRead=3 records=6000 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",4256429,612,3816,4281245,30540,2551,1427
+"nandLocal budget=(7000,256,64) | gates=7000 ext=1 chunkCost=3 chunksRead=3 records=7000 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",4954105,612,3816,4978921,30540,2967,1659
+"nandLocal budget=(10000,256,64) | gates=10000 ext=1 chunkCost=5 chunksRead=5 records=10000 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",7074356,612,3828,7099184,30570,4231,2366
+"nandLocal budget=(14000,256,64) | gates=14000 ext=1 chunkCost=6 chunksRead=6 records=14000 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",9876015,612,3828,9900843,30570,5901,3300
+"nandLocal budget=(20000,256,64) | gates=20000 ext=1 chunkCost=9 chunksRead=9 records=20000 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",14102842,612,3828,14127670,30570,8420,4709
+"nandLocal budget=(28000,256,64) | gates=28000 ext=1 chunkCost=12 chunksRead=12 records=28000 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",19720073,612,3828,19744901,30570,11768,6581
+"nandLocal default budget budget=(6000,256,16) | gates=6000 ext=1 chunkCost=3 chunksRead=3 records=6000 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",4256429,612,3816,4281245,30540,2551,1427
+"latch budget=(500,256,64) | gates=500 ext=2 chunkCost=1 chunksRead=1 records=500 pWords=0 pProof=0 sWords=2 sProof=6 witness=312",458769,868,8776,488545,42940,291,162
+"latch budget=(1000,256,64) | gates=1000 ext=4 chunkCost=1 chunksRead=1 records=1000 pWords=0 pProof=0 sWords=4 sProof=5 witness=352",875482,900,9312,905794,44280,539,301
+"latch budget=(2000,256,64) | gates=2000 ext=8 chunkCost=1 chunksRead=1 records=2000 pWords=0 pProof=0 sWords=8 sProof=4 witness=464",1712108,1028,11012,1744120,48530,1039,581
+"latch budget=(4000,256,64) | gates=4000 ext=16 chunkCost=1 chunksRead=1 records=4000 pWords=0 pProof=0 sWords=16 sProof=3 witness=720",3385900,1284,14808,3421708,58020,2039,1140
+"latch budget=(5000,256,64) | gates=5000 ext=20 chunkCost=2 chunksRead=2 records=5000 pWords=0 pProof=0 sWords=20 sProof=4 witness=896",4238642,1444,17416,4277058,64540,2549,1425
+"latch budget=(6000,256,64) | gates=6000 ext=24 chunkCost=2 chunksRead=2 records=6000 pWords=0 pProof=0 sWords=24 sProof=3 witness=1008",5075367,1572,19116,5115483,68790,3049,1705
+"latch budget=(7000,256,64) | gates=7000 ext=28 chunkCost=2 chunksRead=2 records=7000 pWords=0 pProof=0 sWords=28 sProof=3 witness=1152",5912534,1700,21188,5954722,73970,3549,1984
+"latch budget=(10000,256,64) | gates=10000 ext=40 chunkCost=3 chunksRead=3 records=10000 pWords=0 pProof=0 sWords=40 sProof=3 witness=1584",8439034,2148,27696,8487730,90240,5059,2829
+"latch budget=(14000,256,64) | gates=14000 ext=55 chunkCost=4 chunksRead=4 records=14000 pWords=0 pProof=0 sWords=55 sProof=3 witness=2124",11800390,2692,35824,11857214,110560,7067,3952
+"latch budget=(20000,256,64) | gates=20000 ext=79 chunkCost=5 chunksRead=5 records=20000 pWords=0 pProof=0 sWords=79 sProof=3 witness=2988",16838493,3556,48772,16908265,142930,10078,5636
+"latch budget=(28000,256,64) | gates=28000 ext=110 chunkCost=7 chunksRead=7 records=28000 pWords=0 pProof=0 sWords=110 sProof=2 witness=4072",23563138,4644,64992,23649130,183480,14095,7883
+"latch default budget budget=(6000,256,16) | gates=6000 ext=24 chunkCost=2 chunksRead=2 records=6000 pWords=0 pProof=0 sWords=24 sProof=3 witness=1008",5075367,1572,19116,5115483,68790,3049,1705
+"latch beat 0 (stateRoot EMPTY) budget=(7000,256,64) | gates=7000 ext=28 chunkCost=2 chunksRead=2 records=7000 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",4743821,612,4212,4769033,31530,2842,1589
+"romSmall a=8 w=8 budget=(7000,256,1024) | gates=6400 ext=1 chunkCost=411 chunksRead=7 records=400 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",4806968,612,3840,4831808,30600,2879,1610
+"romSmall a=8 w=8 budget=(6000,256,16) | gates=240 ext=1 chunkCost=16 chunksRead=1 records=15 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",214569,612,3804,239373,30510,142,79
+"romWide a=8 w=256 budget=(7000,256,1024) | gates=6864 ext=1 chunkCost=52 chunksRead=14 records=26 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",2603746,612,3828,2628574,30570,1566,876
+"romWide a=8 w=256 budget=(28000,256,1024) | gates=7920 ext=1 chunkCost=60 chunksRead=15 records=30 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",2982415,612,3828,3007243,30570,1792,1002
+"romWide a=8 w=256 budget=(6000,256,16) | gates=2112 ext=1 chunkCost=16 chunksRead=5 records=8 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",829178,612,3804,853982,30510,509,284
+"romChunk a=10 w=128 budget=(1073741824,256,1) | gates=138 ext=1 chunkCost=3 chunksRead=2 records=1 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",101405,612,3816,126221,30540,75,42
+"romChunk a=10 w=128 budget=(1073741824,256,4) | gates=138 ext=1 chunkCost=3 chunksRead=2 records=1 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",102216,612,3816,127032,30540,75,42
+"romChunk a=10 w=128 budget=(1073741824,256,7) | gates=276 ext=1 chunkCost=6 chunksRead=3 records=2 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",167066,612,3828,191894,30570,114,63
+"romChunk a=10 w=128 budget=(1073741824,256,10) | gates=414 ext=1 chunkCost=9 chunksRead=4 records=3 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",229915,612,3828,254743,30570,151,84
+"romChunk a=10 w=128 budget=(1073741824,256,13) | gates=552 ext=1 chunkCost=12 chunksRead=5 records=4 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",294662,612,3828,319490,30570,190,106
+"romChunk a=10 w=128 budget=(1073741824,256,16) | gates=690 ext=1 chunkCost=15 chunksRead=6 records=5 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",357511,612,3840,382351,30600,227,127
+"romChunk a=10 w=128 budget=(1073741824,256,22) | gates=966 ext=1 chunkCost=21 chunksRead=8 records=7 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",484676,612,3840,509516,30600,303,169
+"romChunk a=10 w=128 budget=(1073741824,256,31) | gates=1380 ext=1 chunkCost=30 chunksRead=11 records=10 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",676538,612,3840,701378,30600,418,233
+"romChunk a=10 w=128 budget=(1073741824,256,46) | gates=2070 ext=1 chunkCost=45 chunksRead=16 records=15 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",994808,612,3840,1019648,30600,607,339
+"romChunk a=10 w=128 budget=(1073741824,256,61) | gates=2760 ext=1 chunkCost=60 chunksRead=21 records=20 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",1312837,612,3840,1337677,30600,797,445
+"romChunk a=10 w=128 budget=(1073741824,256,91) | gates=4140 ext=1 chunkCost=90 chunksRead=31 records=30 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",1949324,612,3840,1974164,30600,1176,658
+"romChunk a=10 w=128 budget=(1073741824,256,121) | gates=5520 ext=1 chunkCost=120 chunksRead=40 records=40 pWords=0 pProof=0 sWords=0 sProof=0 witness=48",2569594,612,3840,2594434,30600,1546,864
+"wide scatter (2 refs/NAND over 256 words) budget=(500,256,64) | gates=500 ext=256 chunkCost=1 chunksRead=1 records=500 pWords=256 pProof=2047 sWords=0 sProof=0 witness=75280",2204892,75844,1199368,3425260,3019420,2041,1141
+"wide scatter (2 refs/NAND over 256 words) budget=(1000,256,64) | gates=1000 ext=256 chunkCost=1 chunksRead=1 records=1000 pWords=256 pProof=2047 sWords=0 sProof=0 witness=75280",2846506,75844,1199368,4066874,3019420,2424,1355
+"wide scatter (2 refs/NAND over 256 words) budget=(2000,256,64) | gates=2000 ext=256 chunkCost=2 chunksRead=2 records=2000 pWords=256 pProof=2047 sWords=0 sProof=0 witness=75280",4143753,75844,1199356,5364109,3019390,3197,1788
+"wide scatter (2 refs/NAND over 256 words) budget=(4000,256,64) | gates=4000 ext=256 chunkCost=3 chunksRead=3 records=4000 pWords=256 pProof=2047 sWords=0 sProof=0 witness=75280",6723551,75844,1199368,7943919,3019420,4734,2647
+"wide scatter (2 refs/NAND over 256 words) budget=(5000,256,64) | gates=5000 ext=256 chunkCost=3 chunksRead=3 records=5000 pWords=256 pProof=2047 sWords=0 sProof=0 witness=75280",8007221,75844,1199368,9227589,3019420,5500,3075
+"wide scatter (2 refs/NAND over 256 words) budget=(6000,256,64) | gates=6000 ext=256 chunkCost=4 chunksRead=4 records=6000 pWords=256 pProof=2047 sWords=0 sProof=0 witness=75280",9304447,75844,1199368,10524815,3019420,6273,3508
+"wide scatter (2 refs/NAND over 256 words) budget=(7000,256,64) | gates=7000 ext=256 chunkCost=4 chunksRead=4 records=7000 pWords=256 pProof=2047 sWords=0 sProof=0 witness=75280",10588166,75844,1199368,11808534,3019420,7038,3936
+"wide scatter (2 refs/NAND over 256 words) budget=(10000,256,64) | gates=10000 ext=256 chunkCost=5 chunksRead=5 records=10000 pWords=256 pProof=2047 sWords=0 sProof=0 witness=75280",14452788,75844,1199368,15673156,3019420,9341,5224
+"wide scatter (2 refs/NAND over 256 words) budget=(14000,256,64) | gates=14000 ext=256 chunkCost=7 chunksRead=7 records=14000 pWords=256 pProof=2047 sWords=0 sProof=0 witness=75280",19613663,75844,1199368,20834031,3019420,12418,6944
+"wide scatter (2 refs/NAND over 256 words) budget=(20000,256,64) | gates=20000 ext=256 chunkCost=10 chunksRead=10 records=20000 pWords=256 pProof=2047 sWords=0 sProof=0 witness=75280",27356480,75844,1199368,28576848,3019420,17033,9525
+"wide scatter (2 refs/NAND over 256 words) budget=(28000,256,64) | gates=28000 ext=256 chunkCost=13 chunksRead=13 records=28000 pWords=256 pProof=2047 sWords=0 sProof=0 witness=75280",37665463,75844,1199368,38885831,3019420,23177,12961
+"wide scatter default budget budget=(6000,256,16) | gates=6000 ext=256 chunkCost=4 chunksRead=4 records=6000 pWords=256 pProof=2047 sWords=0 sProof=0 witness=75280",9304447,75844,1199368,10524815,3019420,6273,3508
+"wide ext sweep (1 word/NAND) budget=(16,256,64) | gates=16 ext=16 chunkCost=1 chunksRead=1 records=16 pWords=16 pProof=116 sWords=0 sProof=0 witness=4880",236221,5444,81932,339153,225830,202,113
+"wide ext sweep (1 word/NAND) budget=(64,256,64) | gates=64 ext=64 chunkCost=1 chunksRead=1 records=64 pWords=64 pProof=450 sWords=0 sProof=0 witness=17296",531512,17860,278968,831480,718420,495,277
+"wide ext sweep (1 word/NAND) budget=(128,256,64) | gates=128 ext=128 chunkCost=1 chunksRead=1 records=128 pWords=128 pProof=897 sWords=0 sProof=0 witness=33904",934800,34468,542272,1498072,1376680,892,499
+"wide ext sweep (1 word/NAND) budget=(256,256,64) | gates=256 ext=256 chunkCost=1 chunksRead=1 records=256 pWords=256 pProof=1792 sWords=0 sProof=0 witness=67152",1756201,67716,1069848,2847049,2695620,1696,949
+"wideA beat-end outputs 0..255 | values=256 pWords=2 pProof=16 dWords=0 dProof=0 peaks=0 witness=594",322680,1028,12848,356528,53120,212,118
+"wideA beat-end outputs 256..383 | values=128 pWords=2 pProof=15 dWords=0 dProof=0 peaks=1 witness=594",181923,1028,12980,215903,53450,128,71
+"wideA beat-end state 0..255 (256 scattered P words) | values=256 pWords=256 pProof=1947 dWords=32 dProof=1 peaks=0 witness=72714",2311541,73156,1153048,3485589,2903620,2077,1161
+"wideA beat-end state 256..319 | values=64 pWords=64 pProof=491 dWords=8 dProof=1 peaks=1 witness=18378",533653,18820,294640,849293,757600,506,283
+"wideB beat-end outputs 256..319 | values=64 pWords=1 pProof=16 dWords=0 dProof=0 peaks=1 witness=590",99595,1028,13004,133599,53510,79,44
+"wideB beat-end state 256..383 | values=128 pWords=128 pProof=944 dWords=16 dProof=1 peaks=1 witness=35466",1091071,35908,564580,1676651,1432450,999,558

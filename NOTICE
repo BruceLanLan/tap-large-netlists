@@ -1,0 +1,29 @@
+Licensing of this repository
+============================
+
+Two licences apply, by kind of content. A licence header inside a file
+(SPDX-License-Identifier) takes precedence over this table.
+
+CC0 1.0 Universal (public domain dedication) -- full text in LICENSE-CC0
+  - TAPs/                                   TAP draft text and its translation (as TAP-01 requires)
+  - contracts/                              all Solidity files carry SPDX CC0-1.0 headers (sources and tests)
+  - Data: assets/tap-draft-large-netlists/vectors.json, contracts/test/data/*.bin,
+    contracts/test/data/*.csv, demo/cartridge/build/*.tapnet2,
+    demo/cartridge/programs/*.asm, measurements/l1fee.md
+
+MIT -- full text in LICENSE
+  - All other code: Python under assets/, contracts/test/data/, demo/ and measurements/.
+  - Documentation that is not a TAP text (README.md, docs/, demo/cartridge/README.md,
+    assets/**/README.md, contracts/lib/README.md) is also offered under MIT; you may
+    additionally treat it as CC0.
+
+Third-party and copied code
+  - assets/tap-02/reference.py: copy of assets/tap-02/reference.py of the TAPs repository
+    (https://github.com/TapeOutProtocol/TAPs, commit fca5034fa5287a6565a94951193b923bcb443585),
+    MIT, as stated in its header. Used only by the tests as an independent TAP-02 evaluator.
+  - contracts/lib/forge-std: not part of this repository. Tests use foundry-rs/forge-std v1.17.0
+    (commit f3dae6e6ee381f25eb6a246f7da9b85c91a68219), dual-licensed MIT OR Apache-2.0;
+    see contracts/lib/README.md for how to install it.
+
+Nothing in this repository is deployed or audited. The software and data are provided
+"as is", without warranty of any kind.

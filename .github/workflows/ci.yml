@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FOUNDRY_VERSION: v1.8.3
+  FORGE_STD_TAG: v1.17.0
+
+jobs:
+  python:
+    name: Python ${{ matrix.suite.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11"]
+        suite:
+          - { name: assets,    dir: assets/tap-draft-large-netlists, cmd: "python make_vectors.py --check && python test_tapnet2.py" }
+          - { name: cartridge, dir: demo/cartridge,                  cmd: "python test_cartridge.py" }
+          - { name: fixtures,  dir: contracts/test/data,             cmd: "python gen_diff.py && python game_gen.py" }
+          - { name: attacks,   dir: measurements/attacks,            cmd: "python attack1.py && python attack2.py && python attack3.py" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run suite
+        working-directory: ${{ matrix.suite.dir }}
+        run: ${{ matrix.suite.cmd }}
+      - name: Generated files must match the committed ones
+        run: git diff --exit-code
+
+  forge:
+    name: Foundry build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install forge-std (not committed, see contracts/lib/README.md)
+        run: git clone --depth 1 --branch "$FORGE_STD_TAG" https://github.com/foundry-rs/forge-std contracts/lib/forge-std
+      - uses: foundry-rs/foundry-toolchain@v1.9.1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - name: forge build
+        working-directory: contracts
+        run: forge build
+      - name: forge test
+        working-directory: contracts
+        run: forge test
+      - name: Gas outputs must match the committed ones
+        run: git diff --exit-code
