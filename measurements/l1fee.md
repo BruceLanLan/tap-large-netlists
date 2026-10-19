@@ -33,7 +33,7 @@ Read-only snapshot taken on **2026-10-18 (UTC)**, about 18:45–19:00 UTC. No tr
     - an all-zero chunk, as a lower bound.
   - Witnesses:
     - Real witnesses of 1,008 bytes (the latch default-budget case) and 75,280 bytes (the wide-scatter case), taken from `contracts/test/data/gas_cases.bin`.
-    - **Synthetic** witnesses of 1,212 bytes (the real 1,152-byte witness plus 60 random bytes) and 84,208 bytes (the real 75,280-byte witness plus 8,928 random bytes, standing in for hashes).
+    - **Synthetic** witnesses of 1,212 bytes (the real 1,152-byte witness of the 7,000-LATCH case of the former budget, plus 60 random bytes) and 84,208 bytes (the real 75,280-byte witness plus 8,928 random bytes, standing in for hashes).
   - A dispute round message is modelled as 200 bytes of calldata (a selector and 196 random bytes).
 - **Prices.** Taken at about 18:46 UTC:
   - ETH ≈ **$2,363**: CoinGecko 2,361.98, OKX ETH-USDT 2,365.38, Binance 2,365.33.

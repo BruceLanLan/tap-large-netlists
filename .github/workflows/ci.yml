@@ -15,7 +15,7 @@ env:
 jobs:
   python:
     name: Python ${{ matrix.suite.name }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -38,7 +38,7 @@ jobs:
 
   forge:
     name: Foundry build + test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Install forge-std (not committed, see contracts/lib/README.md)

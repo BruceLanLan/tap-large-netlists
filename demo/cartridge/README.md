@@ -17,7 +17,7 @@ beat prints) and HALTED.
 
 | Cartridge | Program | What it does |
 |---|---|---|
-| `build/hello.tapnet2` | `programs/hello.asm` | prints `Hello, TAP-721!` and halts |
+| `build/hello.tapnet2` | `programs/hello.asm` | prints `Hello, tapnet/2!` and halts |
 | `build/dodge.tapnet2` | `programs/dodge.asm` | a dodge game: 8 lanes, a rock falls each round and a coin sits in the opposite lane; the player moves left or right one lane per round. A hit ends the game; a coin gives +3, surviving a round +1; after 16 rounds the score is printed and the CPU halts |
 
 ## How a high score becomes checkable

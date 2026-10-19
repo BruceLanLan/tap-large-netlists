@@ -18,7 +18,7 @@ A draft TapeOut standard (TAP) and its reference implementation for netlists far
 - **commitments, a canonical segmentation and one-step verifiers** that check one segment of one beat (at most about 6,000 gate-equivalents under the default budget) against the stored file;
 - **dispute rules** (claim data, data availability, several challengers, acceptance, bisection, timeouts) so that a wrong claim about a run is rejected if one party that computed correctly challenges it in time.
 
-Use cases: verifiable AI inference (sized on the INT-C16 language-model chip, about 1.1 million gates per beat), provable game results (the TAPBOY-8 cartridge demo), large designs for TapeOut processors, and NFTs (optional integration with the netlist-bound NFT draft, §8 of the TAP).
+Use cases: verifiable AI inference (sized on the INT-C16 language-model chip, about 1.1 million gates per beat), provable game results (the TAPBOY-8 cartridge demo), large designs for TapeOut processors, and NFTs (use with the netlist-bound NFT draft, described in the informative §8 of the TAP).
 
 The specification is [`TAPs/TAP-draft-large-netlists.md`](TAPs/TAP-draft-large-netlists.md) (English, normative); [`TAPs/TAP-draft-large-netlists.zh.md`](TAPs/TAP-draft-large-netlists.zh.md) is an informative Chinese translation. The TAP number is assigned by the TAPs editors; until then the draft is called `TAP-draft-large-netlists`.
 
@@ -39,9 +39,9 @@ The specification is [`TAPs/TAP-draft-large-netlists.md`](TAPs/TAP-draft-large-n
 Python 3.9+ (standard library only) and Foundry 1.8.3. `contracts/lib/forge-std` is not committed; see [`contracts/lib/README.md`](contracts/lib/README.md).
 
 ```
-cd assets/tap-draft-large-netlists && python3 make_vectors.py --check && python3 test_tapnet2.py
-cd contracts && forge test
-cd demo/cartridge && python3 test_cartridge.py
+( cd assets/tap-draft-large-netlists && python3 make_vectors.py --check && python3 test_tapnet2.py )
+( cd contracts && forge test )
+( cd demo/cartridge && python3 test_cartridge.py )
 ```
 
 Current results: 49 Python tests, 68 Foundry tests, 15 cartridge tests, all passing ([`docs/TESTING.md`](docs/TESTING.md)). `vectors.json` SHA-256: `902afb750facf46f389d4ca20463cf23a004c98d319c4294c4ab73205b096015`.

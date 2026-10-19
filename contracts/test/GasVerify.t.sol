@@ -11,7 +11,7 @@ import {VerifierHarness} from "./Vectors.t.sol";
 /// Measures a call from a small, fresh frame (the test contract's own memory is tens of MB after loading the
 /// files, which distorts gasleft() deltas taken there).
 contract GasMeter {
-    function measure(address target, bytes calldata data) external returns (uint256 used, bool ok, bytes memory ret) {
+    function measure(address target, bytes calldata data) external view returns (uint256 used, bool ok, bytes memory ret) {
         uint256 g0 = gasleft();
         (ok, ret) = target.staticcall(data);
         used = g0 - gasleft();

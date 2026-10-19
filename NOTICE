@@ -18,9 +18,10 @@ MIT -- full text in LICENSE
     additionally treat it as CC0.
 
 Third-party and copied code
-  - assets/tap-02/reference.py: copy of assets/tap-02/reference.py of the TAPs repository
-    (https://github.com/TapeOutProtocol/TAPs, commit fca5034fa5287a6565a94951193b923bcb443585),
-    MIT, as stated in its header. Used only by the tests as an independent TAP-02 evaluator.
+  - assets/tap-02/reference.py -- copied unchanged from TapeOutProtocol/TAPs commit fca5034
+    (https://github.com/TapeOutProtocol/TAPs, commit fca5034fa5287a6565a94951193b923bcb443585);
+    written by Alda (@ronesync); Copyright (c) 2026 TapeOutProtocol; MIT, full notice in
+    assets/tap-02/LICENSE. Used only by the tests as an independent TAP-02 evaluator.
   - contracts/lib/forge-std: not part of this repository. Tests use foundry-rs/forge-std v1.17.0
     (commit f3dae6e6ee381f25eb6a246f7da9b85c91a68219), dual-licensed MIT OR Apache-2.0;
     see contracts/lib/README.md for how to install it.

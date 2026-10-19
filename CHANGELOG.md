@@ -15,7 +15,8 @@ implementation. Not deployed. Reviewed internally twice; not externally audited.
   `(6000, 256, 16)`, the one-step verifiers `verify_segment` and `verify_beat_end` with the witness encoding, and the
   dispute rules (several challengers, acceptance, input provider, bounds on `T` and `K`, time-based deadlines).
 - A standalone Standards TAP that requires only TAP-02 and ERC-165. Use with netlist-bound NFTs
-  (`TAP-draft-netlist-bound-nft`) is an optional section (§8), with text proposed for that draft's discussion.
+  (`TAP-draft-netlist-bound-nft`) is described in an informative section (§8), with text proposed for that draft's
+  discussion.
 - Earlier, unpublished versions of this text were written as an extension of the netlist-bound NFT draft; the
   normative rules (domain bytes, constants, budgets, witness encoding, game rules) are unchanged by the move to a
   standalone TAP.

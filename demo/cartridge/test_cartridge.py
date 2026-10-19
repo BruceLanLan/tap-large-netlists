@@ -143,7 +143,7 @@ class CartridgeTests(unittest.TestCase):
         rom, _ = load("hello")
         buttons, emu_pins = run_until_halt(rom)
         got = lockstep(self, rom, buttons, extra_beats=4)
-        self.assertEqual(printed(got), b"Hello, TAP-721!\n")
+        self.assertEqual(printed(got), b"Hello, tapnet/2!\n")
         self.assertEqual(got[-1][2], 1)
 
     def test_dodge_good_and_lazy_player(self):

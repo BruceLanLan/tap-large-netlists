@@ -133,7 +133,7 @@ contract UnitTest is Test {
     /// The one segment of the 23-byte file, beat with input 1: V = (0, 1, 1, NAND(1, 1) = 0).
     function _case()
         internal
-        view
+        pure
         returns (TapLargeVerifier.SegTuple memory a, TapLargeVerifier.SegTuple memory b, bytes memory w)
     {
         bytes32 word = bytes32(uint256(0x06) << 248); // bits 1 and 2
