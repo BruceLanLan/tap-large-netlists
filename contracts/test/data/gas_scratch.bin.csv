@@ -1,9 +1,0 @@
-case,execGas,calldataBytes,calldataGas,txEstimate,floor7623,pctOf16777216,pctOf30M
-"sweep 16 | gates=16 ext=16 chunkCost=1 chunksRead=1 records=16 pWords=16 pProof=116 sWords=0 sProof=0 witness=4880",584424,5444,81776,687200,225440,409,229
-"sweep 24 | gates=24 ext=24 chunkCost=1 chunksRead=1 records=24 pWords=24 pProof=172 sWords=0 sProof=0 witness=6960",769688,7524,114768,905456,307920,539,301
-"sweep 32 | gates=32 ext=32 chunkCost=1 chunksRead=1 records=32 pWords=32 pProof=227 sWords=0 sProof=0 witness=9008",953582,9572,147284,1121866,389210,668,373
-"sweep 40 | gates=40 ext=40 chunkCost=1 chunksRead=1 records=40 pWords=40 pProof=284 sWords=0 sProof=0 witness=11120",1036198,11684,180860,1238058,473150,737,412
-"sweep 48 | gates=48 ext=48 chunkCost=1 chunksRead=1 records=48 pWords=48 pProof=339 sWords=0 sProof=0 witness=13168",1104297,13732,213388,1338685,554470,797,446
-"sweep 56 | gates=56 ext=56 chunkCost=1 chunksRead=1 records=56 pWords=56 pProof=395 sWords=0 sProof=0 witness=15248",1173585,15812,246332,1440917,636830,858,480
-"sweep 64 | gates=64 ext=64 chunkCost=1 chunksRead=1 records=64 pWords=64 pProof=450 sWords=0 sProof=0 witness=17296",1242690,17860,278812,1542502,718030,919,514
-"sweep 96 | gates=96 ext=96 chunkCost=1 chunksRead=1 records=96 pWords=96 pProof=674 sWords=0 sProof=0 witness=25616",1517154,26180,410672,1948826,1047680,1161,649

@@ -45,7 +45,7 @@ forge test
 | `test/game/GameLimits.t.sol` | 10 | pass |
 | **Total** | **68** | **68 passed, 0 failed** (about 15 s) |
 
-The gas tests rewrite `contracts/test/data/game_gas.csv`, `gas_cases.bin.csv` and `gas_scratch.bin.csv`; after
+The gas tests rewrite `contracts/test/data/game_gas.csv`, and `gas_cases.bin.csv`; after
 the run they are byte-identical to the committed files (`git diff --exit-code`).
 
 ## 3. Test data generators
