@@ -15,6 +15,12 @@ All notable changes to this repository. The TAP text is a draft; its number is a
   optional witness extension; level 3 opens `stateRoot_t` and check 5 recomputes the combined root. Files without
   RAM ports or ROM read ports are unchanged in every byte, hash, tuple, leaf and witness.
 - Open question 6 (RAM record or multi-port ROM) is replaced by a question on initial memory contents.
+- Netlist-bound NFTs: Backwards Compatibility, §8, Security Considerations and Open question 3 now cite
+  `TAP-draft-netlist-bound-nft` §2.5 "Other netlist formats" (a proposed amendment to that draft, not yet merged)
+  instead of quoting proposed hook text; Backwards Compatibility shows how `tapnet/2` meets each condition of
+  §2.5. A tool that does not support `tapnet/2` shows the netlist as unverifiable, not invalid (it no longer
+  "fails on its `format`"). §8.1: `structuralHash` only for files for which the structural-hash draft defines one
+  (core §7.1). No normative change in §1–§7; no vector change.
 - Fixed (review): §4.5 names the committed fields of a tuple (five for a segment tuple of a file without MEM,
   whose `M` no leaf binds) and §7.4 compares tuples by them only: the last tuples at the list pick, and the tuples
   at `h` and in the bisection as leaves. Comparing the last segment tuples as values, `M` included, let a cheating

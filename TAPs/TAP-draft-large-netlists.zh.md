@@ -189,7 +189,7 @@ netlistHash2  = SHA-256(0x03 ‖ u64be(len) ‖ chunkRoot)
 
 `netlistHash2` 是 `tapnet/2` 文件的网表哈希。它不是文件的 SHA-256，工具 MUST NOT 把二者相互比较。对哈希为 `h` 的文件，第 `i` 块被接受，当且仅当：对声明的 `len` 与 `chunkRoot` 有 `SHA-256(0x03 ‖ u64be(len) ‖ chunkRoot) = h`；`i < n`；`i < n − 1` 时长度为 `C`，`i = n − 1` 时长度为 `len − (n − 1)·C`；并且其 Merkle 证明在大小为 `n`、根为 `chunkRoot` 的树中于下标 `i` 处验证 `chunkLeaf(i)`。
 
-文件是自描述的：第 6 字节是其格式版本，`netlistHash2` 是版本 `0x02` 的网表哈希。（信息性：`tapnet/1` 文件即版本 `0x01`，在 `TAP-draft-netlist-bound-nft` 中以 `SHA-256(file)` 标识；两种哈希为何永不碰撞见设计理由。）
+文件是自描述的：第 6 字节是其格式版本，`netlistHash2` 是版本 `0x02` 的网表哈希。（信息性：`tapnet/1` 文件即版本 `0x01`，在 `TAP-draft-netlist-bound-nft` §2.3 中以 `SHA-256(file)` 标识。两种哈希为何永不碰撞见设计理由，这正是该草案 §2.5 对其他格式的要求（见向后兼容）。）
 
 ### 3. 链上存储（可选）
 
@@ -612,21 +612,17 @@ checkpointRoot = tree(L_0, …, L_{n−1})
 
 ## 向后兼容
 
-本 TAP 定义新的格式与新的接口，不改变任何现有内容：TAP-02 电路、`tapnet/1` 文件及其网表哈希保持原意。不实现本 TAP 的工具会看到一个它不认识的格式版本字节 `0x02`，并像拒绝任何未知版本一样拒绝该文件。
+本 TAP 定义新的格式与新的接口，不改变任何现有内容：TAP-02 电路、`tapnet/1` 文件及其网表哈希保持原意。只实现 `tapnet/1` 的工具会看到一个它不认识的格式版本字节 `0x02`，并像对待任何未知版本一样，不把该文件当作 `tapnet/1` 文件接受；显示网表绑定 NFT 的工具则把这种代币的网表显示为无法核验，而不是无效（见下文）。
 
-网表绑定 NFT（`TAP-draft-netlist-bound-nft`）只有在该草案加入一个钩子之后才能使用 `tapnet/2` 网表；§8.3 列出钩子涉及的位置，下面是供该草案讨论的建议文本。在该草案采纳这样的文本之前，绑定到 `tapnet/2` 网表的代币不符合其 §5.2 与 §7.1 的字面要求，只遵循该草案的工具会把这种代币的元数据视为不符合。§1 至 §7 不受影响。本文以草案名称 `TAP-draft-netlist-bound-nft` 指代它；编辑为它分配编号后，对它的引用（都在信息性文字中）随之更新。
+网表绑定 NFT（`TAP-draft-netlist-bound-nft`）通过该草案的 §2.5"其他网表格式"使用 `tapnet/2` 网表；该节允许 Standards TAP 定义另一种带有自己网表哈希的网表格式，具体用法见 §8。该 §2.5 属于对 `TAP-draft-netlist-bound-nft` 的一项修订提案，尚未合并；在合并之前，绑定到 `tapnet/2` 网表的代币不符合该草案 §5.2 与 §7.1 的字面要求。无论如何，§1 至 §7 都不受影响。本文以草案名称 `TAP-draft-netlist-bound-nft` 指代它；编辑为它分配编号后，对它的引用（都在信息性文字中）随之更新。
 
-建议文本不是本 TAP 所作的改动，也不属于本 TAP 的规范；在该草案中，下文小写的 "may" 与 "must" 将是 RFC 2119 关键词。
+`tapnet/2` 满足该草案 §2.5 对格式提出的每一项条件：它以第 0–5 字节 `TAPNET` 加第 6 字节 `0x02`（§1.1）以及 `tap.netlist.format` 字符串 `"tapnet/2"`（§8.1）标识；它定义了自己的有效性（§1.2）、指标（§1.4）和网表哈希规则 `netlistHash2`（§2.1）；`tap.netlist` 中替代 `sha256` 与 `bytes` 的成员是 `netlistHash2` 和 §1.4 的 `bytes`（文件长度），后者取代 `tapnet/1` 的公式 `16 + 7·nand + 4·latch`（§8.1）。若无 SHA-256 碰撞，任何 `netlistHash2` 都不等于某个有效 `tapnet/1` 文件 `f` 的 `SHA-256(f)`：其原像是以 `0x03` 开头的 41 字节，而每个 `tapnet/1` 文件都以 `0x54` 开头（见设计理由）。
 
-> **Proposed text for `TAP-draft-netlist-bound-nft`, §2.5 Other formats.** A Standards TAP may define another netlist format, identified by a byte 6 other than `0x01` and by its own `tap.netlist.format`, with its own netlist hash rule and metadata members. Its hash rule must be such that no hash it produces equals `SHA-256(f)` for a valid `tapnet/1` file `f` (for example by hashing a preimage that starts with a byte other than `T`). For a netlist in such a format, the netlist value in pool entries (§5.2), `netlistHashOf` and known netlist hashes (§8.2) is that hash, and the requirements of §2.2, §2.4, §5.2, §7.1, §7.3 items 2 and 3, and §7.4 that refer to `tapnet/1`, `SHA-256(file)`, `sha256` or the `bytes` formula apply with that format's validity, metrics, hash and members in their place. A tool that does not support the format must display the token's netlist as unverifiable, not as invalid. `storeNetlist`, the Eval extension and other TAPs written for `tapnet/1` apply to `tapnet/1` only unless they say otherwise.
-
-（译文：**给 `TAP-draft-netlist-bound-nft` 的建议文本，§2.5 其他格式。** Standards TAP 可以定义另一种网表格式，以不同于 `0x01` 的第 6 字节和其自己的 `tap.netlist.format` 标识，连同其自己的网表哈希规则与元数据成员。其哈希规则必须保证：它产生的任何哈希都不等于某个有效 `tapnet/1` 文件 `f` 的 `SHA-256(f)`（例如对首字节不是 `T` 的原像求哈希）。对这种格式的网表，池条目（§5.2）、`netlistHashOf` 与已知网表哈希（§8.2）中的网表值就是该哈希；§2.2、§2.4、§5.2、§7.1、§7.3 第 2、3 条与 §7.4 中涉及 `tapnet/1`、`SHA-256(file)`、`sha256` 或 `bytes` 公式的要求，以该格式的有效性、指标、哈希与成员替换后适用。不支持该格式的工具必须把该代币的网表显示为无法核验，而不是无效。`storeNetlist`、Eval 扩展以及为 `tapnet/1` 编写的其他 TAP，除非另有规定，只适用于 `tapnet/1`。）
-
-`netlistHash2` 满足这一建议的哈希空间条件：其原像是以 `0x03` 开头的 41 字节（见设计理由）。旧工具几乎不受影响：不认识 `tapnet/2` 的工具本来就会因其 `format` 报错，而 `tapnet/2` 文件的 SHA-256 永远不是已知网表哈希，因此 `storeNetlist` 与 Eval 仍然安全。
+按该 §2.5，不支持 `tapnet/2` 的工具把 `tapnet/2` 代币的网表显示为无法核验，而不是无效；该草案的参考检查器对本 TAP 向量中的 `files.message` 示例正是如此处理。该草案的 `storeNetlist`、`netlistFile`、`netlistOf` 与 Eval 扩展只适用于 `tapnet/1` 文件（其 §2.5 与 §8.2 第 4 条），而 `tapnet/2` 文件的 SHA-256 从来不是它的网表哈希，因此实现这些函数的合约不受影响（§8.2）。
 
 ## 8. 与网表绑定 NFT 配合使用（信息性）
 
-本节是信息性的，不属于规范。它说明遵循 `TAP-draft-netlist-bound-nft`（本节中称为**主标准**）的代币与合约可以如何把代币绑定到 `tapnet/2` 网表；§1 至 §7 不依赖本节。本节假定 §8.3 的钩子，而主标准目前还没有这一钩子（见向后兼容），本节也不提出任何要求；如果主标准采纳这样的钩子，本 TAP 的后续修订可以把本节改为要求。
+本节是信息性的，不属于规范。它说明遵循 `TAP-draft-netlist-bound-nft`（本节中称为**主标准**）的代币与合约可以如何把代币绑定到 `tapnet/2` 网表；§1 至 §7 不依赖本节。本节依赖主标准 §2.5（其他网表格式），它属于对主标准的一项尚未合并的修订提案（§8.3，见向后兼容）；本节不提出任何要求；主标准包含 §2.5 之后，本 TAP 的后续修订可以把本节改为要求。
 
 ### 8.1 元数据与池
 
@@ -640,21 +636,21 @@ checkpointRoot = tree(L_0, …, L_{n−1})
 | `ramBanks`、`ramBits`、`ramReadPorts`、`ramWritePorts`、`romPorts` | 数字 | 含端口文件的 §1.4 指标（否则可选） |
 | `uris` | 数组 | 文件的非空 URI 字符串数组 |
 
-它既不包含 `sha256`，也不包含 `structuralHash`（`tapnet/2` 没有定义结构哈希）。池条目（主标准 §5.2）将以 `netlistHash2` 作为网表值。核对这类代币的工具（主标准 §7.4）将取得文件，检查它是有效的 `tapnet/2` 文件，由它算出 `netlistHash2` 并与 `tap.netlist.netlistHash2` 及池条目比较，并比较各项指标。加上 §8.3 的钩子后，主标准将要求不支持该格式的工具把该代币的网表显示为无法核验，而不是无效。
+它不包含 `sha256`：由 `netlistHash2` 取代；`bytes` 是 §1.4 的文件长度，而不是主标准 §7.3 第 2 条的 `tapnet/1` 公式。只有当 `TAP-draft-netlist-structural-hash` 为该文件定义了结构哈希时，它才包含 `structuralHash`（主标准 §7.1）；该草案定义的结构哈希只涵盖 `tapnet/1` 文件。池条目（主标准 §5.2）将以 `netlistHash2` 作为网表值。核对这类代币的工具（主标准 §7.4）将取得文件，检查它是有效的 `tapnet/2` 文件，由它算出 `netlistHash2` 并与 `tap.netlist.netlistHash2` 及池条目比较，并比较各项指标。主标准 §2.5 要求不支持该格式的工具把该代币的网表显示为无法核验，而不是无效。
 
 ### 8.2 与主标准接口的关系
 
-以下将是加上 §8.3 的钩子后主标准的推论，不是对主标准的新要求：
+以下将是主标准加上 §2.5（§8.3）后的推论，不是对主标准的新要求：
 
 - L0（主标准 §8.1）将不变：元数据携带哈希与 URI，文件大小不起作用。
 - 在 L1（主标准 §8.2），`netlistHashOf` 对 `tapnet/2` 代币将返回 `netlistHash2`。`tapnet/2` 网表哈希将按与任何网表哈希相同的规则成为**已知**（主标准 §8.2 第 4 条）。集合合约或伴随合约（主标准 §8.2–§8.3）可以按 §3 存储 `tapnet/2` 文件；此时 §3 第 7 条的已知哈希将是其已知网表哈希。
-- `storeNetlist` 将永远不接受 `tapnet/2` 文件：它只接受 SHA-256 为已知网表哈希（且长度至多 49,152 字节）的文件，而 `tapnet/2` 文件的 SHA-256 不是它的网表哈希。因此 `netlistFile(netlistHash2)` 与 `netlistOf` 将不返回 `tapnet/2` 文件；这类文件在链上的存储与读取方式见 §3。
+- `storeNetlist` 将永远不接受 `tapnet/2` 文件：主标准 §2.5 与 §8.2 第 4 条把它限定为 SHA-256 为已知网表哈希（且长度至多 49,152 字节）的 `tapnet/1` 文件；铸造即绑定合约（主标准 §8.2）还可以接受任何有效的 `tapnet/1` 文件，而 `tapnet/2` 文件不是；并且 `tapnet/2` 文件的 SHA-256 不是它的网表哈希。因此 `netlistFile(netlistHash2)` 与 `netlistOf` 将不返回 `tapnet/2` 文件；这类文件在链上的存储与读取方式见 §3。
 - 由于文件从不通过 `storeNetlist` 存储，Eval 扩展的函数对 `tapnet/2` 代币将会回滚（主标准 §8.4 第 3 条），合约也不会通过 `ITapNetlistEval` 求值 `tapnet/2` 文件。大网表（任何 `tapnet/2` 文件，不论大小）将不实现 Eval 扩展（`evalOf`、`stepOf`、`evalFile`、`stepFile`）。
 - 关于集合中 `tapnet/2` 网表的争议博弈（§7），将只为由该集合的清单承诺（主标准 §5）、且其文件已在链下检查过的网表启动，这正是 §7.1 对每个博弈的要求。
 
-### 8.3 主标准中的钩子
+### 8.3 主标准中的格式钩子（§2.5）
 
-主标准目前在若干处假定每个网表值都是有效 `tapnet/1` 文件的 `SHA-256(file)`：§2.2（有效性）、§2.3（哈希规则）、§2.4（指标）、§5.2（池中每个网表哈希必须属于有效的 `tapnet/1` 文件）、§7.1（`format` 为 `"tapnet/1"`，`sha256` 必需）、§7.3 第 2、3 条（`tap.netlist.bytes` 符合 `tapnet/1` 的大小公式，`tap.netlist.sha256` 等于池条目）、§7.4（工具用 `sha256` 核对 SHA-256）以及 §8.2 第 4 条（已知网表哈希与 `storeNetlist`）。结构哈希扩展与跨链扩展也是按 `tapnet/1` 写的。在主标准中使用 `tapnet/2` 网表，需要主标准中的一个钩子，本 TAP 并不作此改动；供主标准讨论的建议文本引在向后兼容一节。
+没有 §2.5 时，主标准在若干处假定每个网表值都是有效 `tapnet/1` 文件的 `SHA-256(file)`：§2.2（有效性）、§2.3（哈希规则）、§2.4（指标）、§5.2（池中每个网表哈希必须属于有效的 `tapnet/1` 文件）、§7.1（`format` 为 `"tapnet/1"`，`sha256` 必需）、§7.3 第 2、3 条（`tap.netlist.bytes` 符合 `tapnet/1` 的大小公式，`tap.netlist.sha256` 等于池条目）、§7.4（工具用 `sha256` 核对 SHA-256）以及 §8.2 第 4 条（已知网表哈希与 `storeNetlist`）。结构哈希扩展与跨链扩展也是按 `tapnet/1` 写的。主标准 §2.5 就是本节所依赖的那一个钩子：对按它定义的格式的网表，池条目、`netlistHashOf` 与已知网表哈希存放该格式的网表哈希；上面列出的、涉及 `tapnet/1`、`SHA-256(file)`、`sha256` 或 `bytes` 公式的要求，以该格式的有效性、指标、哈希与成员替换后适用；`storeNetlist`、`netlistFile`、`netlistOf`、Eval 扩展以及为 `tapnet/1` 编写的 TAP，除非另有规定，只适用于 `tapnet/1` 文件。§2.5 属于对主标准的一项尚未合并的修订提案（见向后兼容）；本 TAP 不对主标准作任何改动。
 
 ## 测试用例
 
@@ -733,7 +729,7 @@ Solidity 参考实现、卡带演示与实测数据位于参考仓库 `tap-large
 ## 安全考虑
 
 - **假设。** 核对函数与争议的可靠性依赖于 SHA-256 的抗碰撞性、§4.1 的域字节以及每片叶中的下标。在这些假设下，对数据可获取的有效文件，并且公布的输入与 `inputRoot` 相符时，正确计算每个值并遵循 §7 的一方，会赢得它参与的每一场争议；按 §7.1 的声明成立规则，只要有一个这样的一方在窗口内挑战并把争议走完，错误的声明就会被否决。
-- **有效性无法在链上强制。** 没有合约检查 7.5 MB 文件的有效性，核对函数只检查它们触及的记录；`largeStored` 只说明各块与 `netlistHash2` 相符，不说明文件有效。对无效文件，挑战者可以把任何争议引到含无效记录的一段，在那里每个后继都会失败；由于被核对的总是声明者的元组，任何挑战者都能击败任何声明者，无论声明者计算是否正确。因此博弈只能为应用事先承诺过、且其文件已在链下检查过的网表启动（§7.1）；承诺无效文件的应用违背了它自己的承诺（对网表绑定 NFT 集合而言，即违反加上 §8.3 钩子后的 `TAP-draft-netlist-bound-nft` §5.2），工具在核对该文件时拒绝它（§8.1）。无效性证明是待定问题。
+- **有效性无法在链上强制。** 没有合约检查 7.5 MB 文件的有效性，核对函数只检查它们触及的记录；`largeStored` 只说明各块与 `netlistHash2` 相符，不说明文件有效。对无效文件，挑战者可以把任何争议引到含无效记录的一段，在那里每个后继都会失败；由于被核对的总是声明者的元组，任何挑战者都能击败任何声明者，无论声明者计算是否正确。因此博弈只能为应用事先承诺过、且其文件已在链下检查过的网表启动（§7.1）；承诺无效文件的应用违背了它自己的承诺（对网表绑定 NFT 集合而言，即违反经其 §2.5 适用于其他格式的 `TAP-draft-netlist-bound-nft` §5.2，§8.3），工具在核对该文件时拒绝它（§8.1）。无效性证明是待定问题。
 - **数据可获取性。** 没有文件、输入或声明者检查点叶的一方无法计算值或见证，它算不出的声明实际上无法被挑战。因此 §7.1 要求在接受声明之前 `largeStored(netlistHash2)` 为 true，声明附带完整的检查点列表，并在挑战窗口开始之前公开输入。在第 2 层与第 3 层，声明者的拍叶与元组连同证明在链上公布。
 - **来自输入提供者的输入。** 当 `inputRoot` 是给出的而不是由博弈计算的（§7.1 情形 b），提供者可能公布输入 `X`，而 `inputRoot` 承诺另一组输入 `Y`。在 `X` 上计算运行的挑战者，会与在 `Y` 上正确计算的声明者产生分歧；在第 3 层，声明者对照 `inputRoot` 公布 `Y_t`，公开的 `seg_0` 由 `Y_t` 得出，而挑战者由 `X` 算出的元组通不过公布检查或最终调用（参考实现复现了这一点）。自己充当提供者的声明者可以故意这样做，使其声明无法被挑战，所以 §7.1 禁止这样做。面对第三方提供者，挑战者必须在挑战之前对照 `inputRoot` 检查公布的输入，二者不一致时不得在拍层面挑战。本版本没有这种不一致的证明（见待定问题）；由此引出什么后果由应用决定，例如只指名它信任的输入提供者，或在 `T` 允许时在链上计算 `inputRoot`（情形 a）。
 - **活性与计算量。** 争议只保护参与者，无人核查的声明就会成立。诚实的挑战者必须重算这次运行才能找到错误的叶：对 INT-C16 这样的设计，每拍约 110 万个门、每生成一个 token 约 9,800 万拍，即每生成一个 token 约 1.1 × 10^14 次门求值，按每秒 10^9 次门求值约需 30 小时。诚实的声明者被挑战时，必须重算被争议区间至多 `K` 拍与一拍的元组列表，并及时应答每一步。上界 `maxT` 与 `maxK`、挑战窗口、每步截止时间与保证金必须覆盖这些链下计算、各步的链上成本，以及至多 96 KiB 的见证（§6.3）；按区块数计的截止时间会随出块间隔缩短，这就是 §7.1 建议按时间计的原因。
@@ -753,7 +749,7 @@ Solidity 参考实现、卡带演示与实测数据位于参考仓库 `tap-large
 
 1. ROM 操作码是保持 `0x10`，还是与 TAP-02 协调，使未来的 TAP-02 版本可以使用同一记录？
 2. 结构哈希应如何处理 ROM：作为一个以内容哈希为标签的节点，还是按其规范展开？
-3. §8.3 为 `TAP-draft-netlist-bound-nft` 建议的钩子的确切措辞，待该草案的讨论确定。
+3. `TAP-draft-netlist-bound-nft` §2.5（其他网表格式）的采纳：它属于对该草案的一项尚未合并的修订提案（§8.3）；以及届时 §8 是否应改为规范性内容。
 4. 预算数值与见证上限：`(6000, 256, 16)` 与 96 KiB 依据 Solidity 参考核对实现的 gas 选定（附录 B）。有了其他核对实现之后，是否应重新审视？对 OP Stack 链上 L1 数据费的第一次快照（附录 B）发现，它相对 L2 执行很小：在 Base 上低于 1%，在 X Layer 上为零，因为其费用系数为 0。该快照是在以太坊 blob fee 很低时取得的，确定这些数值之前应再测一次。
 5. 争议博弈（声明、保证金、超时、资格）是否应成为建立在 §7 之上的单独 Application TAP？
 6. 以后的版本是否应允许存储器有初始内容，例如由文件中的数据预置一个存储体？存储器与状态一样从全零开始（设计理由），因此程序会改动的表要在运行时写入；永不改变的表应放进 ROM，ROM 读口（`0x13`）可以每拍按多个地址读取它。预置的存储体会使 `memRoot_0` 依赖于文件，第 0 拍就需要它作为公开值。
