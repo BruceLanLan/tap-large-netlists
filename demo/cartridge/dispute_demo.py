@@ -96,6 +96,18 @@ def cheats(s):
     }, k
 
 
+def legacy_mforgery(s):
+    """(data, nl, cheat) for the regression on the LATCH-RAM build (build/legacy/, a file without MEM): the cheater
+    (bisect_sim's MForger, cheat kind "m_forgery") lies about an output of the last score update and puts garbage
+    in the M field of its last segment tuple. M is not committed for a file without MEM (spec 4.5), so the game
+    must compare tuples by their committed fields (spec 7.4) and decide the output list, which the cheater loses
+    in either role."""
+    data = build_cartridge(s["words"], ram="latch")[0]
+    nl = t2.decode(data)
+    assert not nl.has_mem
+    return data, nl, {"kind": "m_forgery", "t": s["t_add"], "signal": nl.n_signals - 1}
+
+
 def run_all(verbose: bool = True):
     t0 = time.time()
     s = setup()

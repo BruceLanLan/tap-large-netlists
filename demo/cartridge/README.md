@@ -119,7 +119,7 @@ Python 3.9+, standard library only.
 | `isa.py`, `assembler.py`, `emulator.py` | instruction set, two-pass assembler, instruction-level emulator independent of the circuit |
 | `programs/hello.asm`, `programs/dodge.asm` | the two programs |
 | `player.py` | button sequences: a "good player" that watches the screen, a player that presses nothing, random presses |
-| `test_cartridge.py` | exhaustive gate tests, the assembler, the circuit against the emulator **beat by beat** (outputs and the whole state, including all 256 bytes of RAM) for both programs, three random button sequences and three random programs; the RAM-port build against the LATCH-RAM build; the dispute demo; the score opening |
+| `test_cartridge.py` | exhaustive gate tests, the assembler, the circuit against the emulator **beat by beat** (outputs and the whole state, including all 256 bytes of RAM) for both programs, three random button sequences and three random programs; the RAM-port build against the LATCH-RAM build; the dispute demo; on the LATCH-RAM build (no MEM), a cheater that forges the uncommitted `M` of its last segment tuple loses in both roles; the score opening |
 | `dispute_demo.py` | the high-score disputes, played through the referee of `bisect_sim.py` |
 | `report.py` | measures and writes `build/*.tapnet2` (RAM ports) and `build/legacy/*.tapnet2` (LATCH RAM) |
 

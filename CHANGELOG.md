@@ -15,14 +15,24 @@ All notable changes to this repository. The TAP text is a draft; its number is a
   optional witness extension; level 3 opens `stateRoot_t` and check 5 recomputes the combined root. Files without
   RAM ports or ROM read ports are unchanged in every byte, hash, tuple, leaf and witness.
 - Open question 6 (RAM record or multi-port ROM) is replaced by a question on initial memory contents.
+- Fixed (review): §4.5 names the committed fields of a tuple (five for a segment tuple of a file without MEM,
+  whose `M` no leaf binds) and §7.4 compares tuples by them only: the last tuples at the list pick, and the tuples
+  at `h` and in the bisection as leaves. Comparing the last segment tuples as values, `M` included, let a cheating
+  claimant forge the `M` of its last tuple in a file without MEM, have the segment list picked although all its
+  leaves agree, and make the honest challenger, as the "longer" of two equal-length lists, reveal a tuple
+  `h + 1` it does not have. Equal tuples at `h` now imply different lengths. The §6.3 bound for files with RAM ports
+  is 84,208 bytes, as without them (the 84,212 counted the memory part's two count bytes also when it is absent).
+  Security Considerations state the reliance on validity rule 11 (the MEM flag).
 
 ### Reference implementation
 
 - Python reference: RAM ports, ROM read ports, memory tree and verifier; `test_ram.py` (18 tests); new example
-  files `ram16`, `rammix`, `romports`; RAM vectors (`vectors.json` SHA-256
-  `3008acc10a1d0694763a1c9f7a59990d172ba70472f09aa27021edf89b93a753`).
+  files `ram16`, `rammix`, `romports`; `bisect_sim.py` compares tuples by their committed fields and has a new
+  cheater class `m_forgery` (MForger), `test_tapnet2.py` 50 tests; RAM vectors (`vectors.json` SHA-256
+  `b6ba365e912f149e1ab8e292588fac7f934cdb1fa1ba6d8d1b8ac3dabfd9f2d6`).
 - `demo/cartridge/`: the RAM is now bank 0 of the RAM ports: 5,781 bytes, 1 chunk, 1 segment (the LATCH-RAM build
-  is kept as `build_cartridge(rom, ram="latch")` and `build/legacy/`); 17 tests.
+  is kept as `build_cartridge(rom, ram="latch")` and `build/legacy/`); 18 tests, including the M-forgery regression on
+  the LATCH-RAM build.
 - `contracts/`: the verifier implements RAM read and write ports, ROM read ports, the memory proofs and their
   encoding, and `verifySegment(netlistHash2, latchRoot, memRoot, a, b, witness, budget)` with six-field tuples; the
   game reads the MEM flag at the claim, checks the claimant's opening of `stateRoot_t` at level 3 (new reason
@@ -31,9 +41,12 @@ All notable changes to this repository. The TAP text is a draft; its number is a
   237 bytes over before). Fixed: the verifier's fast path could add a NAND or LATCH after a first record that alone
   exceeded `extWords` (a ROM with many address words under a small budget; with RAM ports also a write port under
   the default budget); the Python reference ends the segment there, and now so does the verifier. Tests: every
-  vector (177 + 60) replayed, a 3,500-case differential corpus with RAM files, 111 end-to-end scenarios (RAM
-  cheaters on `ram16` and `rammix`, a claimant without an opening, the cartridge's score disputes), gas cases for
-  RAM ports, ROM read ports and the cartridge; 84 Foundry tests. The default budget and the weight of four words per
+  vector (177 + 60) replayed, a 3,500-case differential corpus with RAM files, 118 end-to-end scenarios (RAM
+  cheaters on `ram16` and `rammix`, a claimant without an opening, the cartridge's score disputes, and the
+  M-forgery regression on `message`, `large` and the LATCH-RAM cartridge in both roles), gas cases for RAM ports,
+  ROM read ports and the cartridge; 89 Foundry tests. The game compares the last tuples by their committed fields
+  (a segment tuple as its leaf at index 0) and reverts `UnreachableEqualEnds` on equal tuples at `h` with equal
+  lengths; `game_gen.py`'s mirror does the same. The default budget and the weight of four words per
   memory access are unchanged: the costliest segment with RAM ports measured 5.9 million gas against 9.3 million
   for the costliest call. Appendix B gives the measurements instead of the estimates.
 

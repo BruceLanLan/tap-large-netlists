@@ -7,7 +7,7 @@
 | `examples.py` | The example files (`sbox`, `mul4`, `message`, `large`; with ports `ram16`, `rammix`, `romports`, and the LATCH-built twin of `ram16`), random ROM netlists and the invalid samples, all generated in code. |
 | `make_vectors.py` | Generates `vectors.json` (deterministic: fixed seeds, sorted keys, no timestamps). |
 | `vectors.json` | Test vectors (sections listed in the TAP's Test Cases). |
-| `test_tapnet2.py` | `unittest` suite, 49 tests (below). |
+| `test_tapnet2.py` | `unittest` suite, 50 tests (below). |
 | `test_ram.py` | `unittest` suite for RAM ports and ROM read ports, 18 tests (below). |
 
 ## Regenerate and test
@@ -21,7 +21,7 @@ Python 3.9 or later, standard library only. `python3 make_vectors.py` (without `
 SHA-256 of `vectors.json`:
 
 ```
-3008acc10a1d0694763a1c9f7a59990d172ba70472f09aa27021edf89b93a753
+b6ba365e912f149e1ab8e292588fac7f934cdb1fa1ba6d8d1b8ac3dabfd9f2d6
 ```
 
 ## What `test_tapnet2.py` checks
@@ -35,7 +35,8 @@ SHA-256 of `vectors.json`:
   independent TAP-02 evaluator `../tap-02/reference.py` of the TAPs repository (another copy can be named with the
   environment variable `TAP02_REFERENCE`); if that file is not found, the comparison runs against `tapnet2.py`
   only and one test is skipped;
-- the dispute rules of §7: honest against every cheater class in both roles, the claim rules of §7.1 (sock
+- the dispute rules of §7: honest against every cheater class in both roles (including a party that forges the
+  uncommitted `M` of its last segment tuple; tuples are compared by their committed fields), the claim rules of §7.1 (sock
   puppets, several challengers, bounds on `T` and `K`, both input cases, an input provider that may not claim).
 
 ## What `test_ram.py` checks

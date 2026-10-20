@@ -91,6 +91,10 @@ class Party:
       {"kind": "segmentation", "mode": "short"|"long", "t", "signal"}    non-canonical boundaries + a gate lie
       {"kind": "eof_extra", "t", "signal": an output signal}            honest values, lied output, and an extra
                                                                          segment tuple after EOF with a fake P_m
+      {"kind": "m_forgery", "t", "signal": an output signal}            (MForger; files without MEM) honest values,
+                                                                         lied output, and garbage in the M field of
+                                                                         its last segment tuple (M is not committed
+                                                                         for such files, spec 4.5)
       {"kind": "index", "i": i}                                          (challenger) name checkpoint index i
                                                                          whatever the leaves say
     and, for a claimant, optionally "inputs": "withhold" | "wrong" (at level 3, reveal no inputs, or other
@@ -128,7 +132,7 @@ class Party:
         V, outs, ns, nm, ev = t2.evaluate_full(self.nl, self.states[t], self.mems[t], self.inputs[t], flips,
                                                sflip, mflip)
         self._last_mem, self._last_events = nm, ev
-        if c.get("kind") == "eof_extra" and c["t"] == t:   # honest values, lied outputs
+        if c.get("kind") in ("eof_extra", "m_forgery") and c["t"] == t:   # honest values, lied outputs
             outs = list(outs)
             outs[c["signal"] - (self.nl.n_signals - self.nl.n_out)] ^= 1
         return V, outs, ns
@@ -202,6 +206,11 @@ class Party:
                 m = seg[-1]
                 seg.append(t2.SegTuple(m.byte_offset, m.first_signal, m.latch_ordinal,
                                        t2.prefix_root(t2.DOM_SIGNAL, V2, m.first_signal), m.d))
+            if self.cheat and self.cheat["kind"] == "m_forgery" and self.cheat["t"] == t:
+                # MForger: M is not part of segLeaf for a file without MEM, so its last segment leaf stays honest
+                # while the value of the tuple differs from the honest one
+                assert not self.nl.has_mem, "m_forgery is a cheat for files without MEM"
+                seg[-1] = seg[-1]._replace(m=b"\xAB" * 32)
             lists = {"seg": seg, "out": out, "state": st}
             leaves = {"seg": [t2.seg_tuple_leaf(j, s, self.nl.has_mem) for j, s in enumerate(seg)],
                       "out": [t2.end_tuple_leaf("out", k, e) for k, e in enumerate(out)],
@@ -414,15 +423,24 @@ class Referee:
         com = {who: p.commit_details(t) for who, p in P.items()}
         rounds["tuples"] = 1
 
-        def tup(who: str, kind: str, j: int):
+        def key(kind: str, j: int, v) -> bytes:
+            """The leaf of tuple v at index j: it hashes exactly the committed fields of the tuple (spec 4.5;
+            the M of a segment tuple only for a file with MEM). Tuples are compared by it (spec 7.4)."""
+            return t2.seg_tuple_leaf(j, v, has_mem) if kind == "seg" else t2.end_tuple_leaf(kind, j, v)
+
+        def tupl(who: str, kind: str, j: int):
+            """(tuple, leaf) revealed by `who` at index j of its list, with its proof checked."""
             p = P[who]
             root, n = com[who][kind]
             if not 0 <= j < n:
                 raise Lose(who, f"{kind} tuple {j} does not exist")
             v, pr2 = p.reveal_tuple(t, kind, j)
-            lf = t2.seg_tuple_leaf(j, v, has_mem) if kind == "seg" else t2.end_tuple_leaf(kind, j, v)
+            lf = key(kind, j, v)
             self._check(who, root, n, j, lf, pr2)
-            return v
+            return v, lf
+
+        def tup(who: str, kind: str, j: int):
+            return tupl(who, kind, j)[0]
 
         seg0_pub = t2.initial_tuple(n_in, in_bits, mem_t)
         ends3 = {}
@@ -445,17 +463,22 @@ class Referee:
                 raise Lose(who, "state tuples do not match the claimed stateRoot")
             ends3[who] = {"seg": sm, "out": om, "state": qm}
 
+        # the first list whose last tuples differ in a committed field: compared as leaves at the common index 0
+        # (a leaf includes its index, and the last tuples of lists of different lengths sit at different indices)
         for kind in ("seg", "out", "state"):
-            if ends3["claimant"][kind] != ends3["challenger"][kind]:
+            if key(kind, 0, ends3["claimant"][kind]) != key(kind, 0, ends3["challenger"][kind]):
                 break
         else:
             raise AssertionError("unreachable: equal end tuples imply equal beat leaves")
         n_cl, n_ch = com["claimant"][kind][1] - 1, com["challenger"][kind][1] - 1
         hi = min(n_cl, n_ch)
         rounds[kind] = 1    # both reveal tuple h (a round of its own, as in the on-chain game)
-        if tup("claimant", kind, hi) == tup("challenger", kind, hi):
-            # equal at the shorter length: the longer list must justify one more step (it cannot, past EOF);
-            # its party reveals tuple h + 1 first (one more round)
+        if tupl("claimant", kind, hi)[1] == tupl("challenger", kind, hi)[1]:
+            # equal leaves at the shorter length: the longer list must justify one more step (it cannot, past
+            # EOF); its party reveals tuple h + 1 first (one more round). Equal lengths cannot get here: h is then
+            # both last indices, and the last leaves differ (the list pick above)
+            if n_cl == n_ch:
+                raise AssertionError("unreachable: equal leaves at h with equal lengths")
             prover = "claimant" if n_cl > n_ch else "challenger"
             j = hi + 1
             rounds[kind] += 1
@@ -464,13 +487,17 @@ class Referee:
             while hi - lo > 1:
                 mid = (lo + hi) // 2
                 rounds[kind] += 1
-                if tup("claimant", kind, mid) == tup("challenger", kind, mid):
+                if tupl("claimant", kind, mid)[1] == tupl("challenger", kind, mid)[1]:
                     lo = mid
                 else:
                     hi = mid
             prover, j = "claimant", hi
-        a = tup("claimant", kind, j - 1)    # agreed
+        # the prover re-supplies the agreed tuple j - 1 (its own preimage of the agreed leaf) and its tuple j;
+        # for a file without MEM it passes M = ZERO_MEM, which is not committed (spec 4.5, 7.4)
+        a = tup(prover, kind, j - 1)
         b = tup(prover, kind, j)
+        if kind == "seg" and not has_mem:
+            a, b = a._replace(m=t2.ZERO_MEM), b._replace(m=t2.ZERO_MEM)
         w = P[prover].witness(t, kind, j)
         rounds["verify"] = 1
         if kind == "seg":
@@ -629,6 +656,7 @@ def scenario_setup(name: str):
             "e_eof_extra": {"kind": "eof_extra", "t": 15, "signal": nl.n_signals - 1},
             "f_beat0": {"kind": "gate", "t": 0, "signal": nand},
             "g_empty_state": {"kind": "empty_state", "t": 16},
+            "j_m_forgery": {"kind": "m_forgery", "t": 15, "signal": nl.n_signals - 1},
         }
         return data, nl, inputs, 8, t2.TINY_BUDGET, cheats
     if name == "large":
@@ -651,6 +679,7 @@ def scenario_setup(name: str):
             "e_eof_extra": {"kind": "eof_extra", "t": 1, "signal": nl.n_signals - 2},
             "f_beat0": {"kind": "gate", "t": 0, "signal": out_nand},
             "g_empty_state": {"kind": "empty_state", "t": 2},
+            "j_m_forgery": {"kind": "m_forgery", "t": 1, "signal": nl.n_signals - 2},
         }
         return data, nl, inputs, 2, t2.DEFAULT_BUDGET, cheats
     if name in ("ram16", "rammix"):

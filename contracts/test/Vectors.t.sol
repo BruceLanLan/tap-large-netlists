@@ -29,7 +29,7 @@ contract VerifierHarness is TapLargeVerifier {
 /// accept/reject as the Python reference.
 contract VectorsTest is Test {
     bytes32 internal constant ZERO_MEM = 0x073f71c2a5b9f99ff7828db2196e3c833ca70e5225e20912d7dcf150c165dcff;
-    bytes32 internal constant VECTORS_SHA256 = 0x3008acc10a1d0694763a1c9f7a59990d172ba70472f09aa27021edf89b93a753;
+    bytes32 internal constant VECTORS_SHA256 = 0xb6ba365e912f149e1ab8e292588fac7f934cdb1fa1ba6d8d1b8ac3dabfd9f2d6;
     string internal json;
 
     TapLargeNetlistStoreOwned internal storeFile;

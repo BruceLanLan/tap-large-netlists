@@ -229,6 +229,24 @@ class LegacyComparisonTests(unittest.TestCase):
             self.assertEqual([so[o] for o in range(25)], sn)           # PC, ACC, B, HALTED latches
             self.assertEqual([sum(so[25 + 8 * k + i] << i for i in range(8)) for k in range(256)], mem[0])
 
+    def test_legacy_m_forgery_loses(self):
+        """Regression: on the LATCH-RAM build (no MEM), a cheater that forges the uncommitted M of its last segment
+        tuple and lies about an output loses in both roles, by verify_beat_end of the output list."""
+        import bisect_sim as bs
+        import dispute_demo
+        s = dispute_demo.setup()
+        data, nl, cheat = dispute_demo.legacy_mforgery(s)
+        store, nh2 = t2.oracle_for(data)
+        ref = bs.Referee(store, dispute_demo.BUDGET)
+        mk = lambda name, c=None: bs.Party(name, nl, s["inputs"], dispute_demo.K, dispute_demo.BUDGET, c)  # noqa: E731
+        honest, liar = mk("honest"), mk("cheater_m_forgery", cheat)
+        self.assertNotEqual(liar.cp_leaves, honest.cp_leaves)
+        for cl, ch in ((liar, honest), (honest, liar)):
+            r = bs.run_one(ref, nh2, cl, ch)
+            self.assertEqual(r["winner"], "honest", r)
+            self.assertEqual(r["verifyCalls"], 1)
+            self.assertTrue(r["final"].startswith("verify_beat_end[out]"), r["final"])
+
 
 if __name__ == "__main__":
     unittest.main()

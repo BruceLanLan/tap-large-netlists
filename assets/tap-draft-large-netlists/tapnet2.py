@@ -1917,8 +1917,10 @@ def seg_witness_bound_ram(budget: Budget = DEFAULT_BUDGET) -> int:
     """Upper bound of a segment witness of a file with RAM ports (spec 6.3). Within the budget,
     kP + kS + MEM_WEIGHT * kM <= extWords. A segment whose first record alone exceeds the budget is that record
     and nothing else: a write port reads at most 277 P words and makes 1 memory access (a ROM, ROM port or RAM
-    read port at most 20 words and at most 1 access)."""
-    fixed = (1 + 16 * 32 + 1 + 32) + (1 + 21 * 32 + 1 + 32) + 2 + 2 + 4 + 2 + 2 + MEM_EXT_HEADER
+    read port at most 20 words and at most 1 access). The memory part, with its two counts (MEM_EXT_HEADER), is
+    present only when kM >= 1; with kM = 0 the bound is that of a file without RAM ports. Under the default budget
+    every kM >= 1 gives less, so the bound is the same 84,208 bytes."""
+    fixed = (1 + 16 * 32 + 1 + 32) + (1 + 21 * 32 + 1 + 32) + 2 + 2 + 4 + 2 + 2
 
     def words(k: int) -> int:
         return 36 * k + 32 * multiproof_bound(k, SIGNAL_WORD_DEPTH)
@@ -1927,7 +1929,8 @@ def seg_witness_bound_ram(budget: Budget = DEFAULT_BUDGET) -> int:
     e = budget.ext_words
     for km in range(e // MEM_WEIGHT + 1):
         rest = e - MEM_WEIGHT * km
+        mem = km * MEM_ACCESS_MAX_BYTES + (MEM_EXT_HEADER if km else 0)
         for kp in range(rest + 1):
-            best = max(best, km * MEM_ACCESS_MAX_BYTES + words(kp) + words(rest - kp))
-    lone = words(RAMW_MAX_REFS) + MEM_ACCESS_MAX_BYTES
-    return fixed + max(best, lone, words(ROM_MAX_A))
+            best = max(best, mem + words(kp) + words(rest - kp))
+    lone = words(RAMW_MAX_REFS) + MEM_ACCESS_MAX_BYTES + MEM_EXT_HEADER
+    return fixed + max(best, lone, words(ROM_MAX_A) + MEM_ACCESS_MAX_BYTES + MEM_EXT_HEADER)

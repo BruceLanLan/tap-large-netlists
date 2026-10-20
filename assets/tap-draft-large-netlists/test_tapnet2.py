@@ -570,7 +570,7 @@ class TestDisputes(unittest.TestCase):
     def test_cheater_classes_covered(self):
         for ex in ("message", "large"):
             for cls in ("a_short", "a_long", "b_state", "c_rom", "d_checkpoint", "e_eof_extra", "f_beat0",
-                        "g_empty_state"):
+                        "g_empty_state", "j_m_forgery"):
                 for role in ("claimant", "challenger"):
                     r = self.res[f"{ex}/{cls}_as_{role}"]
                     self.assertTrue(r["loser"].startswith("cheater_"), (ex, cls, role))
@@ -589,6 +589,28 @@ class TestDisputes(unittest.TestCase):
             self.assertEqual(self.res[f"{ex}/h_inputs_withhold_as_claimant"]["reason"],
                              "inputs of the disputed beat not revealed")
             self.assertEqual(self.res[f"{ex}/h_inputs_wrong_as_claimant"]["reason"], "bad Merkle proof in a reveal")
+
+    def test_m_forgery_decided_by_output_list(self):
+        """Review regression (MForger): a file without MEM does not commit M, so a cheater that lies about an
+        output and forges the M of its last segment tuple has only honest segment leaves. Tuples are compared by
+        their committed fields (spec 7.4): the output list is picked and the cheater loses in either role; before
+        the fix the segment list was picked and, at h with equal lengths, the honest challenger had to reveal a
+        tuple h + 1 it does not have."""
+        for ex in ("message", "large"):
+            ref, nh2, data, nl, inputs, K, budget, cheats = bisect_sim.setup_game(ex)
+            self.assertFalse(nl.has_mem)
+            liar = bisect_sim.Party("cheater", nl, inputs, K, budget, cheats["j_m_forgery"])
+            t = cheats["j_m_forgery"]["t"]
+            honest_last = bisect_sim.Party("h", nl, inputs, K, budget).details(t)["lists"]["seg"][-1]
+            forged_last = liar.details(t)["lists"]["seg"][-1]
+            self.assertNotEqual(forged_last, honest_last)                       # differs as a value ...
+            n = len(liar.details(t)["lists"]["seg"]) - 1
+            self.assertEqual(t2.seg_tuple_leaf(n, forged_last), t2.seg_tuple_leaf(n, honest_last))  # ... not as a leaf
+            for role in ("claimant", "challenger"):
+                r = self.res[f"{ex}/j_m_forgery_as_{role}"]
+                self.assertTrue(r["winner"].startswith("honest"), (ex, role, r))
+                self.assertTrue(r["final"].startswith("verify_beat_end[out]"), (ex, role, r["final"]))
+                self.assertEqual(r["verifyCalls"], 1)
 
     def test_hidden_middle_checkpoint_is_challengeable(self):
         """Reviewer's attack 3: a forged middle checkpoint with a correct last leaf; the challenger now wins."""

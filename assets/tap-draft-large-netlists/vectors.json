@@ -506,6 +506,42 @@
    "winner": "honest",
    "witnessBytes": null
   },
+  "large/j_m_forgery_as_challenger": {
+   "beat": 1,
+   "final": "verify_beat_end[out](0 -> 1)",
+   "index": 1,
+   "loser": "cheater_j_m_forgery",
+   "reason": "verify_beat_end[out](0 -> 1) returned True for the claimant",
+   "rounds": {
+    "beat": 2,
+    "checkpoint": 1,
+    "out": 1,
+    "tuples": 1,
+    "verify": 1
+   },
+   "totalRounds": 6,
+   "verifyCalls": 1,
+   "winner": "honest",
+   "witnessBytes": 206
+  },
+  "large/j_m_forgery_as_claimant": {
+   "beat": 1,
+   "final": "verify_beat_end[out](0 -> 1)",
+   "index": 1,
+   "loser": "cheater_j_m_forgery",
+   "reason": "verify_beat_end[out](0 -> 1) returned False for the claimant",
+   "rounds": {
+    "beat": 2,
+    "checkpoint": 1,
+    "out": 1,
+    "tuples": 1,
+    "verify": 1
+   },
+   "totalRounds": 6,
+   "verifyCalls": 1,
+   "winner": "honest",
+   "witnessBytes": 206
+  },
   "message/a_long_as_challenger": {
    "beat": 19,
    "final": "verify_segment(seg_0 -> seg_1)",
@@ -981,6 +1017,42 @@
    "verifyCalls": 0,
    "winner": "honest",
    "witnessBytes": null
+  },
+  "message/j_m_forgery_as_challenger": {
+   "beat": 15,
+   "final": "verify_beat_end[out](0 -> 1)",
+   "index": 1,
+   "loser": "cheater_j_m_forgery",
+   "reason": "verify_beat_end[out](0 -> 1) returned True for the claimant",
+   "rounds": {
+    "beat": 4,
+    "checkpoint": 1,
+    "out": 1,
+    "tuples": 1,
+    "verify": 1
+   },
+   "totalRounds": 8,
+   "verifyCalls": 1,
+   "winner": "honest",
+   "witnessBytes": 46
+  },
+  "message/j_m_forgery_as_claimant": {
+   "beat": 15,
+   "final": "verify_beat_end[out](0 -> 1)",
+   "index": 1,
+   "loser": "cheater_j_m_forgery",
+   "reason": "verify_beat_end[out](0 -> 1) returned False for the claimant",
+   "rounds": {
+    "beat": 4,
+    "checkpoint": 1,
+    "out": 1,
+    "tuples": 1,
+    "verify": 1
+   },
+   "totalRounds": 8,
+   "verifyCalls": 1,
+   "winner": "honest",
+   "witnessBytes": 46
   },
   "ram16/a_ram_read_as_challenger": {
    "beat": 13,
@@ -1931,7 +2003,7 @@
   "bounds": {
    "beatEndWitness": 92810,
    "segmentWitness": 84208,
-   "segmentWitnessMem": 84212,
+   "segmentWitnessMem": 84208,
    "witnessCap": 98304
   },
   "large": {

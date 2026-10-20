@@ -19,8 +19,8 @@ python3 test_ram.py
 
 | Check | Result |
 |---|---|
-| `make_vectors.py --check` | `vectors.json matches sha256: 3008acc10a1d0694763a1c9f7a59990d172ba70472f09aa27021edf89b93a753` |
-| `test_tapnet2.py` | 49 tests, OK (about 13 s), Python 3.9.6 and 3.11.15 |
+| `make_vectors.py --check` | `vectors.json matches sha256: b6ba365e912f149e1ab8e292588fac7f934cdb1fa1ba6d8d1b8ac3dabfd9f2d6` |
+| `test_tapnet2.py` | 50 tests, OK (about 12 s), Python 3.9.6 and 3.11.15 |
 | `test_ram.py` | 18 tests, OK (about 4 s), Python 3.9.6 and 3.11.15: RAM read and write ports, ROM read ports, the memory tree, `verify_segment` with memory proofs, the memory encoding, and disputes with RAM cheaters |
 
 `test_tapnet2.py` loads the independent TAP-02 evaluator `../tap-02/reference.py` (or the file named by the
@@ -42,14 +42,14 @@ forge test
 | `test/Unit.t.sol` | 7 | pass |
 | `test/GasStore.t.sol` | 2 | pass (the 456-chunk upload; the cartridge's upload with RAM ports and with LATCH-based RAM) |
 | `test/GasVerify.t.sol` | 1 | pass (114 cases, including RAM read and write ports, ROM read ports and the cartridge) |
-| `test/game/E2E.t.sol` | 44 | pass (111 end-to-end scenarios on five files, three of them with RAM ports: `ram16`, `rammix` and the cartridge) |
+| `test/game/E2E.t.sol` | 49 | pass (118 end-to-end scenarios on six files, three of them with RAM ports: `ram16`, `rammix` and the cartridge; the other three are `message`, `large` and the cartridge's LATCH-RAM build, on which a party that forges the uncommitted `M` of its last segment tuple loses in both roles) |
 | `test/game/MultiChallenger.t.sol` | 6 | pass |
 | `test/game/GameLimits.t.sol` | 10 | pass (including the costliest final calls, with and without RAM ports, through the game) |
-| **Total** | **84** | **84 passed, 0 failed** (about 60 s) |
+| **Total** | **89** | **89 passed, 0 failed** (about 50 s) |
 
-Contract sizes (`forge build --sizes`; EIP-170 limit 24,576 bytes): `TapLargeDisputeGame` 24,079, `TapLargeGameLib`
+Contract sizes (`forge build --sizes`; EIP-170 limit 24,576 bytes): `TapLargeDisputeGame` 24,114, `TapLargeGameLib`
 3,223, `TapLargeVerifier` 13,837, `TapLargeNetlistStoreOwned` 4,468 bytes of runtime code. `GameHarness`, a
-test-only subclass of the game, is above the limit (26,302 bytes), so `forge build --sizes` reports an error for it;
+test-only subclass of the game, is above the limit (26,337 bytes), so `forge build --sizes` reports an error for it;
 Foundry tests do not enforce the limit.
 
 The gas tests rewrite `contracts/test/data/game_gas.csv` and `gas_cases.bin.csv`; after
@@ -62,11 +62,19 @@ The binary test data is generated with the Python reference and is reproducible 
 ```
 cd contracts/test/data
 python3 gen_diff.py     # diff_cases.bin   (about 6 s)
-python3 game_gen.py     # game_moves.bin   (about 10 s)
+python3 game_gen.py     # game_moves.bin   (about 23 s)
 python3 gen_gas.py      # gas_cases.bin    (about 70 s)
 ```
 
 All three outputs were regenerated and are identical to the committed files.
+
+`game_gen.py` plays every scenario against a Python mirror of the game; the mirror decides exactly as the
+contract does (the same reveal checks, the same list pick by the committed fields of the last tuples, tuples at
+`h` and in the bisection compared as leaves, the same midpoints and final call), and `E2E.t.sol` asserts that the
+contract reaches the mirror's outcome in every scenario, including the index asked at every reveal. The
+M-forgery scenarios (`*/j_m_forgery_*`, `legacy/m_forgery_*`) are the regression for the review finding that the
+game compared the uncommitted `M` of files without MEM: against the contract before the fix, all five
+`test_mForgery_*` tests fail (the game asks for another tuple than the mirror, and picks the segment list).
 
 ## 4. Cartridge demo
 
@@ -79,7 +87,7 @@ python3 dispute_demo.py
 
 | Check | Result |
 |---|---|
-| `test_cartridge.py` | 17 tests, OK (about 8 s), Python 3.9.6 and 3.11.15 |
+| `test_cartridge.py` | 18 tests, OK (about 12 s), Python 3.9.6 and 3.11.15 |
 | `report.py` | rewrites `build/*.tapnet2` (RAM ports: 5,781 bytes, 1 chunk, 1 canonical segment, honest witnesses 48 to 224 bytes) and `build/legacy/*.tapnet2` (LATCH RAM: 104,076 bytes, 7 chunks, 3 segments, 48 to 968 bytes), byte-identical to the committed files |
 | `dispute_demo.py` | six scenarios; every cheater loses; each dispute that reaches the verifier is decided by exactly one call of `verify_segment` (8 or 9 rounds) |
 

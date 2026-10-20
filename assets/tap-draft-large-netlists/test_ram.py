@@ -300,7 +300,7 @@ class TestVerifier(unittest.TestCase):
 
     def test_witness_bound(self):
         self.assertEqual(t2.seg_witness_bound(), 84208)
-        self.assertEqual(t2.seg_witness_bound_ram(), 84212)
+        self.assertEqual(t2.seg_witness_bound_ram(), 84208)     # the memory part displaces more than it adds
         self.assertLessEqual(t2.seg_witness_bound_ram(), t2.WITNESS_CAP)
 
 

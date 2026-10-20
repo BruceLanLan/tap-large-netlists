@@ -187,7 +187,7 @@ contract TapLargeDisputeGame {
         bytes32 seg0Leaf; // segLeaf(0, public seg_0 of beat t)
         bytes32[3] clRoots; // claimant's three list roots
         uint32[3] clLengths;
-        bytes32[3] clLastHash; // keccak of the claimant's last tuples (compared by value)
+        bytes32[3] clLastHash; // keys of the claimant's last tuples (their committed fields, §7.4)
         bytes32 segMLeaf; // claimant's last segment leaf (= the agreed seg_m when out/state is picked)
         uint32 segMIndex;
     }
@@ -533,8 +533,14 @@ contract TapLargeDisputeGame {
         Reason r = _revealChecks(c, d, x);
         if (r != Reason.None) return _resolve(id, challenger, _other(who), r);
 
-        bytes32[3] memory lastHash =
-            [keccak256(abi.encode(x.segLast)), keccak256(abi.encode(x.outLast)), keccak256(abi.encode(x.stateLast))];
+        // comparison keys of the last tuples, by their committed fields (§7.4): a segment tuple as its leaf at the
+        // common index 0 (M only for a file with MEM, §4.5), an output or state tuple by value (both fields are
+        // committed)
+        bytes32[3] memory lastHash = [
+            _segLeaf(c, 0, x.segLast),
+            keccak256(abi.encode(x.outLast)),
+            keccak256(abi.encode(x.stateLast))
+        ];
         if (who == Role.Claimant) {
             d.clRoots = x.roots;
             d.clLengths = x.lengths;
@@ -544,7 +550,7 @@ contract TapLargeDisputeGame {
             return _next(c, d, Phase.TupleCommit, Role.Challenger);
         }
 
-        // both passed: pick the first list (segment, output, state) whose last tuples differ
+        // both passed: pick the first list (segment, output, state) whose last tuples differ in a committed field
         uint8 k;
         while (k < 3 && lastHash[k] == d.clLastHash[k]) ++k;
         if (k == 3) revert UnreachableEqualEnds(); // equal ends would mean equal leaves at t + 1
@@ -606,7 +612,9 @@ contract TapLargeDisputeGame {
         uint64 ask = d.ask;
         if (ph == Phase.TupleAtH) {
             if (leaf == d.pending) {
-                // equal at h = min(lastA, lastB): the longer list must justify h → h + 1 (it cannot)
+                // equal at h = min(lastA, lastB): the longer list must justify h → h + 1 (it cannot). Equal
+                // lengths are unreachable: h is then both last indices, and the last leaves differ (list pick)
+                if (d.sizes[0] == d.sizes[1]) revert UnreachableEqualEnds();
                 Role longer = d.sizes[0] > d.sizes[1] ? Role.Claimant : Role.Challenger;
                 d.prover = longer;
                 d.lo = ask;

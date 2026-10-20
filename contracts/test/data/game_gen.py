@@ -14,8 +14,13 @@ interleave several disputes (sock puppets, two honest challengers, two cheating 
 Games (one per file): `message` (TINY budget, inputs of case (a)), `large` (default budget, case (b)), and the
 files with RAM ports (MEM): `ram16` (TINY, case (a)), `rammix` (default, case (b)) with the RAM cheaters of
 bisect_sim (a RAM read lie, a forged RAM write, a write-data gate lie, a LATCH lie, a lie in beat 0) and a claimant
-that cannot open the agreed stateRoot_t, and `dodge`, the TAPBOY-8 cartridge of demo/cartridge (default budget,
-case (b), T = 651, K = 32) with the score disputes of demo/cartridge/dispute_demo.py.
+that cannot open the agreed stateRoot_t, `dodge`, the TAPBOY-8 cartridge of demo/cartridge (default budget,
+case (b), T = 651, K = 32) with the score disputes of demo/cartridge/dispute_demo.py, and `legacy`, the LATCH-RAM
+build of the same cartridge (no MEM; build/legacy/dodge.tapnet2, same inputs, K and budget).
+
+Regression for M forgery (files without MEM, where M is not committed, §4.5): bisect_sim's MForger (cheat kind
+"m_forgery": a lied output plus garbage in the M of its last segment tuple) in both roles on message, large and
+legacy. The mirror compares tuples by their committed fields (as leaves), exactly as the contract does.
 
 Usage: python3 game_gen.py     (deterministic; writes game_moves.bin next to this file)
 
@@ -248,7 +253,12 @@ class Game:
             if r:
                 raise Done(1 - who, R[r])
             ends[who] = {k: lists[k][-1] for k in KINDS}
-        kind = next(k for k in KINDS if ends[CL][k] != ends[CH][k])
+        # §7.4: tuples are compared by their committed fields, i.e. as leaves (M of a segment tuple only for a
+        # file with MEM); the last tuples at the common index 0, as the contract does
+        def key(k, j, v):
+            return t2.seg_tuple_leaf(j, v, has_mem) if k == "seg" else t2.end_tuple_leaf(k, j, v)
+
+        kind = next(k for k in KINDS if key(k, 0, ends[CL][k]) != key(k, 0, ends[CH][k]))
         ki = KINDS.index(kind)
         size = {who: com[who][kind][1] for who in (CL, CH)}
         h = min(size[CL], size[CH]) - 1
@@ -257,31 +267,35 @@ class Game:
             v, pr = self.P[who].reveal_tuple(t, kind, j)
             if kind == "seg":
                 self.emit(who, M_REVEAL_SEG, u64(j) + tup(v) + proof(pr))
-                lf = t2.seg_tuple_leaf(j, v, has_mem)
             else:
                 self.emit(who, M_REVEAL_END, u64(j) + end(v) + proof(pr))
-                lf = t2.end_tuple_leaf(kind, j, v)
+            lf = key(kind, j, v)
             if not t2.merkle_verify(com[who][kind][0], size[who], j, lf, pr):
                 raise Done(1 - who, R["BadProof"])
-            return v
+            return v, lf
 
-        vcl, vch = reveal(CL, h), reveal(CH, h)
-        if vcl == vch:
+        (vcl, lcl), (vch, lch) = reveal(CL, h), reveal(CH, h)
+        if lcl == lch:
+            # equal leaves at h; equal lengths are unreachable (the contract reverts UnreachableEqualEnds)
+            assert size[CL] != size[CH], "unreachable: equal leaves at h with equal lengths"
             prover = CL if size[CL] > size[CH] else CH
             lo_j, hi_j = h, h + 1
-            a = vcl
-            b = reveal(prover, hi_j)
+            a = vcl if prover == CL else vch          # the prover's own preimage of the agreed leaf h
+            b = reveal(prover, hi_j)[0]
         else:
             lo_j, hi_j = 0, h
             a, b = self.P[CL].reveal_tuple(t, kind, 0)[0], vcl
             while hi_j - lo_j > 1:
                 mid = (lo_j + hi_j) // 2
-                x, y = reveal(CL, mid), reveal(CH, mid)
-                if x == y:
+                (x, lx), (_, ly) = reveal(CL, mid), reveal(CH, mid)
+                if lx == ly:
                     lo_j, a = mid, x
                 else:
                     hi_j, b = mid, x
             prover = CL
+        if kind == "seg" and not has_mem:
+            # M is not committed for a file without MEM: the prover passes ZERO_MEM in a and b (§4.5, §7.4)
+            a, b = a._replace(m=t2.ZERO_MEM), b._replace(m=t2.ZERO_MEM)
         w = self.P[prover].witness(t, kind, hi_j)
         if kind == "seg":
             self.emit(prover, M_PROVE_SEG, tup(a) + tup(b) + u32(len(w)) + w)
@@ -463,6 +477,11 @@ def scenarios():
     out.append(("dodge/D_ram_write_as_challenger", 4, None, dc["state"], None, None))
     out.append(("dodge/E_ram_read_as_claimant", 4, dc["read"], None, None, None))
     out.append(("dodge/F_ram_read_as_challenger", 4, None, dc["read"], None, None))
+    # the LATCH-RAM cartridge (no MEM): the M-forgery regression in both roles
+    lc = legacy_setup()[5]
+    out.append(("legacy/A_honest_unchallenged", 5, None, None, None, None))
+    out.append(("legacy/m_forgery_as_claimant", 5, lc["m_forgery"], None, None, None))
+    out.append(("legacy/m_forgery_as_challenger", 5, None, lc["m_forgery"], None, None))
     return out
 
 
@@ -487,6 +506,20 @@ def dodge_cheats():
     return dodge_setup()[5]
 
 
+_LEGACY = {}
+
+
+def legacy_setup():
+    """(data, nl, inputs, K, budget, cheats) of the LATCH-RAM build of the cartridge (a file without MEM), with the
+    MForger cheat of demo/cartridge/dispute_demo.py's legacy_mforgery."""
+    if not _LEGACY:
+        import dispute_demo as dd
+        s = dd.setup()
+        data, nl, cheat = dd.legacy_mforgery(s)
+        _LEGACY["v"] = (data, nl, s["inputs"], dd.K, dd.BUDGET, {"m_forgery": cheat})
+    return _LEGACY["v"]
+
+
 class NoOpening(bs.Party):
     """A cheating claimant that does not reveal a valid opening of the agreed stateRoot_t at level 3."""
 
@@ -509,6 +542,8 @@ class Setup:
         self.ex, self.case = ex, case
         if ex == "dodge":
             self.data, self.nl, self.inputs, self.K, self.budget, self.cheats = dodge_setup()
+        elif ex == "legacy":
+            self.data, self.nl, self.inputs, self.K, self.budget, self.cheats = legacy_setup()
         else:
             self.data, self.nl, self.inputs, self.K, self.budget, self.cheats = bs.scenario_setup(ex)
         self.store, self.nh2 = t2.oracle_for(self.data)
@@ -630,8 +665,9 @@ def multi_scenarios(setups):
 
 def main():
     setups = {"message": Setup("message", CASE_A), "large": Setup("large", CASE_B),
-              "ram16": Setup("ram16", CASE_A), "rammix": Setup("rammix", CASE_B), "dodge": Setup("dodge", CASE_B)}
-    games = [setups[k] for k in ("message", "large", "ram16", "rammix", "dodge")]
+              "ram16": Setup("ram16", CASE_A), "rammix": Setup("rammix", CASE_B), "dodge": Setup("dodge", CASE_B),
+              "legacy": Setup("legacy", CASE_B)}
+    games = [setups[k] for k in ("message", "large", "ram16", "rammix", "dodge", "legacy")]
     recs = []
     for sc in scenarios():
         name, gi, ccl, cch, stop, index = sc[:6]

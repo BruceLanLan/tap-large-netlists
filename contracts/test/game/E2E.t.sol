@@ -10,11 +10,12 @@ import {TapLargeDisputeGame} from "../../src/game/TapLargeDisputeGame.sol";
 import {Upload} from "../utils/Upload.sol";
 import {Cases} from "../utils/Cases.sol";
 
-/// End-to-end disputes of the informative game (src/game/TapLargeDisputeGame.sol) on five files: the examples of
+/// End-to-end disputes of the informative game (src/game/TapLargeDisputeGame.sol) on six files: the examples of
 /// assets/tap-draft-large-netlists/ `message` (sequential ROM, TINY budget, K = 8, inputs of case (a): the game
 /// computes inputRoot) and `large` (default budget, K = 2, case (b): a separate input provider publishes them);
 /// the files with RAM ports (MEM) `ram16` (TINY, K = 4, case (a)) and `rammix` (default, K = 4, case (b)); and the
-/// TAPBOY-8 cartridge of demo/cartridge, `dodge` (RAM ports, default budget, T = 651, K = 32, case (b)).
+/// TAPBOY-8 cartridge of demo/cartridge, `dodge` (RAM ports, default budget, T = 651, K = 32, case (b)), and its
+/// LATCH-RAM build `legacy` (no MEM, same parameters).
 ///
 /// The moves come from test/data/game_gen.py, which plays the honest and cheating parties of assets/tap-draft-large-netlists/bisect_sim.py
 /// against a Python mirror of the referee and records every transaction plus the predicted outcome. This test
@@ -102,7 +103,7 @@ contract E2ETest is Test {
         Cases.Reader memory r = Cases.Reader(data, 0);
         require(Cases.uintN(r, 4) == 0x54444733, "magic"); // "TDG3"
         uint256 ng = Cases.uintN(r, 1);
-        require(ng == 5, "five games");
+        require(ng == 6, "six games");
         store = new TapLargeNetlistStoreOwned(address(this));
         actors = [
             makeAddr("claimant"),
@@ -317,6 +318,65 @@ contract E2ETest is Test {
 
     function test_cartridge_cheatingChallengerRamRead() public {
         _named("dodge/F_ram_read_as_challenger");
+    }
+
+    // ------------------------------------------------------------------ M forgery on files without MEM (§4.5, §7.4)
+
+    /// A cheater (bisect_sim's MForger) lies about one output of beat t and puts garbage in the M field of its last
+    /// segment tuple. For a file without MEM, M is not committed (not hashed into segLeaf), so every segment leaf
+    /// of the cheater is honest. The game compares the last tuples by their committed fields and picks the output
+    /// list, where the cheater loses by verify_beat_end, in either role and on all three files without MEM. The
+    /// mirror (game_gen.py) predicts the same outcome.
+    function test_mForgery_claimantLoses_message() public {
+        _named("message/j_m_forgery_as_claimant");
+    }
+
+    function test_mForgery_claimantLoses_large() public {
+        _named("large/j_m_forgery_as_claimant");
+    }
+
+    function test_mForgery_claimantLoses_legacyCartridge() public {
+        _named("legacy/m_forgery_as_claimant");
+    }
+
+    function test_mForgery_challengerLoses() public {
+        _named("message/j_m_forgery_as_challenger");
+        _named("large/j_m_forgery_as_challenger");
+        _named("legacy/m_forgery_as_challenger");
+    }
+
+    /// The review's reproduction, step by step: before the fix, the forged M made the game pick the segment list
+    /// although all its leaves agree; at h = n - 1 both leaves were equal with equal lengths, the game asked the
+    /// honest challenger for tuple h + 1, which does not exist, and the honest challenger lost by timeout. Now the
+    /// output list is picked (kind 1), the game never reaches the equal-at-h branch, and the honest challenger wins.
+    function test_mForgery_honestChallengerWins_stepByStep() public {
+        Scenario memory s = _find("message/j_m_forgery_as_claimant");
+        TapLargeDisputeGame g = games[s.game];
+        Cases.Reader memory r = Cases.Reader(data, s.at);
+        Stats memory st;
+        uint256 id;
+        uint256 m;
+        uint256 commits;
+        address ch = actors[1];
+        for (; m < s.nMoves; ++m) {
+            uint8 mtype = uint8(data[r.p + 1]);
+            id = _move(g, id, r, st);
+            if (mtype == M_COMMIT_TUPLES && ++commits == 2) break; // the challenger's commit: the list is picked
+        }
+        (,,,,,, uint8 kind) = g.stateOf(id, ch);
+        assertEq(kind, 1, "the output list is picked (the segment leaves all agree)");
+        for (++m; m < s.nMoves; ++m) {
+            uint8 mtype = uint8(data[r.p + 1]);
+            assertTrue(mtype != M_REVEAL_SEG && mtype != M_PROVE_SEG, "no segment move");
+            id = _move(g, id, r, st);
+            (TapLargeDisputeGame.Phase phase,,,,,,) = g.stateOf(id, ch);
+            assertTrue(phase != TapLargeDisputeGame.Phase.TupleExtra, "never the equal-at-h branch");
+        }
+        (address w, TapLargeDisputeGame.Role role, TapLargeDisputeGame.Reason reason) = g.outcomeOf(id, ch);
+        assertEq(uint8(role), uint8(TapLargeDisputeGame.Role.Challenger), "the honest challenger wins");
+        assertEq(uint8(reason), uint8(TapLargeDisputeGame.Reason.VerifierFalse));
+        assertEq(w, ch);
+        assertEq(uint8(g.claimOf(id).status), uint8(TapLargeDisputeGame.Status.Rejected));
     }
 
     // ------------------------------------------------------------------ several challengers (§7.1)
