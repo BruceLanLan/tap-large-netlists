@@ -6,6 +6,13 @@ All notable changes to this repository. The TAP text is a draft; its number is a
 
 ### Standard (`TAPs/`)
 
+- New normative §2.2 (Metadata members): for a netlist-bound NFT whose netlist is a `tapnet/2` file,
+  `tap.netlist.format` is `"tapnet/2"`, `netlistHash2` replaces `sha256` (which is absent), `bytes` is the file
+  length of §1.4 and the metric members equal the metrics of §1.4, as core §2.5 requires a format to define.
+  §0, Backwards Compatibility, §8 (still informative, now restating §2.2) and Open question 3 refer to it.
+- Open question 9: should netlists of mint-bound collections (core §8.2 proposal) be eligible for disputes, with
+  the netlist hash recorded at mint as the commitment? The §8.2 rule (manifest-committed netlists) is unchanged.
+  No change to §1, §2.1, §3–§7 or to the vectors.
 - Netlist-bound NFTs: Backwards Compatibility, §8, Security Considerations and Open question 3 now cite
   `TAP-draft-netlist-bound-nft` §2.5 "Other netlist formats" (a proposed amendment to that draft, not yet merged)
   instead of quoting proposed hook text; Backwards Compatibility shows how `tapnet/2` meets each condition of

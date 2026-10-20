@@ -36,7 +36,7 @@ A concrete example is the INT-C16 design published by its author at https://jogj
 2. **A hash and an upload that fit transactions.** SHA-256 over 7.5 MB cannot be computed in one transaction; the memory expansion alone exceeds the gas cap. A Merkle root over fixed-size chunks can be checked one chunk per transaction.
 3. **A way to trust an evaluation.** One generated token of INT-C16 takes about 98 million beats of about 1.1 million gates each (Appendix A). No chain can run that, so no contract can evaluate the netlist in one call, as the Eval extension of `TAP-draft-netlist-bound-nft` does for small files. What a contract can do is settle a *disagreement* about a run: if two parties disagree about the outputs of `T` beats, an interactive bisection narrows the disagreement to one segment of at most about 6,000 gates of one beat, which a contract can re-evaluate. This needs commitments, a segmentation and verifiers that every implementation agrees on byte for byte, which is why they are specified here rather than left to each game.
 
-This TAP adds those three pieces as a standard of its own. It changes nothing in TAP-02 or in `tapnet/1`, and it depends on no NFT standard; the informative §8 describes how netlist-bound NFTs could use it.
+This TAP adds those three pieces as a standard of its own. It changes nothing in TAP-02 or in `tapnet/1`, and apart from the metadata members of §2.2, which apply only to netlist-bound NFTs, it depends on no NFT standard; the informative §8 describes how netlist-bound NFTs could use it.
 
 ## Specification
 
@@ -93,12 +93,12 @@ The verifier MUST fail if the proof is exhausted early, if hashes are left over,
 This TAP adds:
 
 - §1, the `tapnet/2` format, its validity, semantics and metrics;
-- §2, the netlist hash `netlistHash2`;
+- §2, the netlist hash `netlistHash2` and the members of `tap.netlist` for a `tapnet/2` file;
 - §3, an OPTIONAL on-chain storage interface `ITapLargeNetlistStore`, which also serves as the chunk oracle of the verifiers;
 - §4–§6, the commitments, the canonical segmentation, the one-step verifiers and the encoding of their witnesses;
 - §7, the data, data-availability requirements and rules a dispute game over `tapnet/2` evaluation MUST use.
 
-§8, after Backwards Compatibility and outside this Specification, is informative: it describes how netlist-bound NFTs (`TAP-draft-netlist-bound-nft`) could use `tapnet/2` netlists. §1 to §7 do not depend on §8 or on any NFT standard.
+§8, after Backwards Compatibility and outside this Specification, is informative: it describes how netlist-bound NFTs (`TAP-draft-netlist-bound-nft`) could use `tapnet/2` netlists. §1 to §7 do not depend on §8; apart from §2.2, which applies only to netlist-bound NFTs, they do not depend on any NFT standard.
 
 ### 1. The `tapnet/2` format
 
@@ -188,6 +188,17 @@ netlistHash2  = SHA-256(0x03 ‖ u64be(len) ‖ chunkRoot)
 `netlistHash2` is the netlist hash of a `tapnet/2` file. It is not the SHA-256 of the file, and tools MUST NOT compare one with the other. A chunk `i` of a file with hash `h` is accepted if and only if: `SHA-256(0x03 ‖ u64be(len) ‖ chunkRoot) = h` for the declared `len` and `chunkRoot`; `i < n`; its length is `C` for `i < n − 1` and `len − (n − 1)·C` for `i = n − 1`; and its Merkle proof verifies `chunkLeaf(i)` at index `i` of a tree of size `n` with root `chunkRoot`.
 
 A file is self-describing: byte 6 is its format version, and `netlistHash2` is the netlist hash of version `0x02`. (Informative: a `tapnet/1` file, version `0x01`, is identified by `SHA-256(file)` in `TAP-draft-netlist-bound-nft` §2.3. Rationale explains why the two hashes never collide, which §2.5 of that draft requires of other formats (Backwards Compatibility).)
+
+#### 2.2 Metadata members
+
+A netlist-bound NFT (`TAP-draft-netlist-bound-nft`) whose netlist is a `tapnet/2` file uses this format under §2.5 of that draft (Other netlist formats), which requires a format to define its validity, its metrics, its netlist hash rule and the members of `tap.netlist` that replace `sha256` and `bytes`. The validity of `tapnet/2` is that of §1.2, its metrics are those of §1.4 and its netlist hash rule is `netlistHash2` (§2.1). In the `netlist` member of the `tap` object of such a token:
+
+1. `format` MUST be the string `"tapnet/2"`.
+2. The member `netlistHash2` replaces `sha256`: it MUST be present and equal to the `netlistHash2` of the file, written as `0x` + 64 lowercase hexadecimal digits, and `sha256` MUST NOT be present.
+3. `bytes` MUST equal the metric `bytes` of §1.4, the length of the file, in place of the size formula of that draft's §7.3 item 2.
+4. `nIn`, `nOut`, `nand` and `latch` MUST equal the metrics of §1.4 with those names. A member named after another metric of §1.4 MAY be present and, if present, MUST equal that metric.
+
+This subsection applies only to such tokens; the rest of §1 to §7 does not depend on it. §8 (informative) describes how the pools, contracts and tools of that draft would treat such a token.
 
 ### 3. On-chain storage (optional)
 
@@ -612,19 +623,19 @@ If both pass, the game picks the first of the lists segment, output, state whose
 
 This TAP defines a new format and new interfaces and changes nothing that exists: TAP-02 circuits, `tapnet/1` files and their netlist hash keep their meaning. A tool that implements only `tapnet/1` sees a format version byte `0x02` that it does not know and does not accept the file as a `tapnet/1` file, as for any unknown version; a tool that displays netlist-bound NFTs shows the netlist of such a token as unverifiable, not as invalid (below).
 
-Netlist-bound NFTs (`TAP-draft-netlist-bound-nft`) use `tapnet/2` netlists through §2.5 of that draft, "Other netlist formats", which lets a Standards TAP define another netlist format with its own netlist hash; §8 describes how. That §2.5 belongs to a proposed amendment to `TAP-draft-netlist-bound-nft` that is not yet merged; until it is, a token bound to a `tapnet/2` netlist is outside the letter of that draft's §5.2 and §7.1. §1 to §7 are not affected either way. `TAP-draft-netlist-bound-nft` is named here by its draft name; when editors assign it a number, the references to it, all of them in informative text, follow.
+Netlist-bound NFTs (`TAP-draft-netlist-bound-nft`) use `tapnet/2` netlists through §2.5 of that draft, "Other netlist formats", which lets a Standards TAP define another netlist format with its own netlist hash; §8 describes how. That §2.5 belongs to a proposed amendment to `TAP-draft-netlist-bound-nft` that is not yet merged; until it is, a token bound to a `tapnet/2` netlist is outside the letter of that draft's §5.2 and §7.1. §1 to §7 are not affected either way. `TAP-draft-netlist-bound-nft` is named here by its draft name; when editors assign it a number, the references to it follow.
 
-`tapnet/2` meets each condition that §2.5 of that draft sets for a format: it is identified by bytes 0–5 `TAPNET` with byte 6 `0x02` (§1.1) and by the `tap.netlist.format` string `"tapnet/2"` (§8.1); it defines its validity (§1.2), its metrics (§1.4) and its netlist hash rule, `netlistHash2` (§2.1); and the members of `tap.netlist` that replace `sha256` and `bytes` are `netlistHash2` and the `bytes` of §1.4, the file length, in place of the `tapnet/1` formula `16 + 7·nand + 4·latch` (§8.1). No `netlistHash2` equals `SHA-256(f)` for a valid `tapnet/1` file `f` without a SHA-256 collision: its preimage is 41 bytes starting with `0x03`, and every `tapnet/1` file starts with `0x54` (Rationale).
+`tapnet/2` meets each condition that §2.5 of that draft sets for a format: it is identified by bytes 0–5 `TAPNET` with byte 6 `0x02` (§1.1) and by the `tap.netlist.format` string `"tapnet/2"` (§2.2); it defines its validity (§1.2), its metrics (§1.4) and its netlist hash rule, `netlistHash2` (§2.1); and the members of `tap.netlist` that replace `sha256` and `bytes` are `netlistHash2` and the `bytes` of §1.4, the file length, in place of the `tapnet/1` formula `16 + 7·nand + 4·latch` (§2.2). No `netlistHash2` equals `SHA-256(f)` for a valid `tapnet/1` file `f` without a SHA-256 collision: its preimage is 41 bytes starting with `0x03`, and every `tapnet/1` file starts with `0x54` (Rationale).
 
 Under that §2.5, a tool that does not support `tapnet/2` displays the netlist of a `tapnet/2` token as unverifiable, not as invalid; the reference checker of that draft does so for the `files.message` example of this TAP's vectors. `storeNetlist`, `netlistFile`, `netlistOf` and the Eval extension of that draft apply to `tapnet/1` files only (its §2.5 and §8.2 item 4), and the SHA-256 of a `tapnet/2` file is never its netlist hash, so contracts that implement them are unaffected (§8.2).
 
 ## 8. Use with netlist-bound NFTs (informative)
 
-This section is informative and not part of the Specification. It describes how tokens and contracts that follow `TAP-draft-netlist-bound-nft` (called **core** in this section) could bind a token to a `tapnet/2` netlist; §1 to §7 do not depend on it. It relies on core §2.5 (Other netlist formats), part of a proposed amendment to core that is not yet merged (§8.3, Backwards Compatibility), and states no requirements; once core contains §2.5, a later revision of this TAP can turn this section into requirements.
+This section is informative and not part of the Specification. It describes how tokens and contracts that follow `TAP-draft-netlist-bound-nft` (called **core** in this section) could bind a token to a `tapnet/2` netlist; §1 to §7 do not depend on it. It relies on core §2.5 (Other netlist formats), part of a proposed amendment to core that is not yet merged (§8.3, Backwards Compatibility), and states no requirements of its own: the members that core §2.5 asks a format to define are specified in §2.2, which this section restates. Once core contains §2.5, a later revision of this TAP can turn the rest of this section into requirements.
 
 ### 8.1 Metadata and pools
 
-The `netlist` member of the `tap` object (core §7.1) of a token whose netlist is a `tapnet/2` file would contain:
+The `netlist` member of the `tap` object (core §7.1) of a token whose netlist is a `tapnet/2` file would contain the following, where `format`, `netlistHash2`, `bytes` and the metric members follow §2.2:
 
 | Member | Type | Content |
 |---|---|---|
@@ -634,7 +645,7 @@ The `netlist` member of the `tap` object (core §7.1) of a token whose netlist i
 | `ramBanks`, `ramBits`, `ramReadPorts`, `ramWritePorts`, `romPorts` | numbers | the metrics of §1.4 of a file with ports (optional otherwise) |
 | `uris` | array | a non-empty array of URI strings of the file |
 
-It would contain no `sha256`: `netlistHash2` takes its place, and `bytes` is the file length of §1.4 instead of the `tapnet/1` formula of core §7.3 item 2. It would contain `structuralHash` only for files for which `TAP-draft-netlist-structural-hash` defines one (core §7.1); the structural hash that draft defines covers `tapnet/1` files only. Pool entries (core §5.2) would carry `netlistHash2` as the netlist value. A tool that checks such a token (core §7.4) would fetch the file, check that it is a valid `tapnet/2` file, compute `netlistHash2` from it and compare that with `tap.netlist.netlistHash2` and with the pool entry, and compare the metrics. Core §2.5 requires a tool that does not support this format to display the token's netlist as unverifiable, not as invalid.
+As §2.2 requires, it would contain no `sha256`: `netlistHash2` takes its place, and `bytes` is the file length of §1.4 instead of the `tapnet/1` formula of core §7.3 item 2. It would contain `structuralHash` only for files for which `TAP-draft-netlist-structural-hash` defines one (core §7.1); the structural hash that draft defines covers `tapnet/1` files only. Pool entries (core §5.2) would carry `netlistHash2` as the netlist value. A tool that checks such a token (core §7.4) would fetch the file, check that it is a valid `tapnet/2` file, compute `netlistHash2` from it and compare that with `tap.netlist.netlistHash2` and with the pool entry, and compare the metrics. Core §2.5 requires a tool that does not support this format to display the token's netlist as unverifiable, not as invalid.
 
 ### 8.2 Relation to core interfaces
 
@@ -644,7 +655,7 @@ These would be consequences of core with §2.5 (§8.3), not new requirements on 
 - At L1 (core §8.2), `netlistHashOf` would return `netlistHash2` for a `tapnet/2` token. A `tapnet/2` netlist hash would be **known** under the same rules as any netlist hash (core §8.2 item 4). A collection or a companion (core §8.2–§8.3) could store `tapnet/2` files under §3; the known hashes of §3 item 7 would then be its known netlist hashes.
 - `storeNetlist` would never accept a `tapnet/2` file: core §2.5 and §8.2 item 4 limit it to `tapnet/1` files whose SHA-256 is a known netlist hash (and at most 49,152 bytes long), a mint-bound contract (core §8.2) may in addition accept any valid `tapnet/1` file, which a `tapnet/2` file is not, and the SHA-256 of a `tapnet/2` file is not its netlist hash. Hence `netlistFile(netlistHash2)` and `netlistOf` would not return `tapnet/2` files; §3 is how such a file is stored and read on chain.
 - Because the file is never stored through `storeNetlist`, the Eval extension's functions would revert for a `tapnet/2` token (core §8.4 item 3), and a contract would not evaluate a `tapnet/2` file through `ITapNetlistEval`. A large netlist (any `tapnet/2` file, whatever its size) would not implement the Eval extension (`evalOf`, `stepOf`, `evalFile`, `stepFile`).
-- A dispute game (§7) about a `tapnet/2` netlist of a collection would be started only for netlists committed by a manifest of the collection (core §5) whose files were checked off chain, as §7.1 requires of every game.
+- A dispute game (§7) about a `tapnet/2` netlist of a collection would be started only for netlists committed by a manifest of the collection (core §5) whose files were checked off chain, as §7.1 requires of every game. Whether mint-bound collections should also be eligible is Open question 9.
 
 ### 8.3 The format hook in core (§2.5)
 
@@ -747,12 +758,13 @@ This TAP depends on no deployed contract.
 
 1. Should the ROM opcode stay `0x10`, or be coordinated with TAP-02 so that a future TAP-02 version can use the same record?
 2. How should a structural hash treat ROM: as one node labelled by its content hash, or by its canonical expansion?
-3. The adoption of `TAP-draft-netlist-bound-nft` §2.5 (Other netlist formats), part of a proposed amendment to that draft that is not yet merged (§8.3), and whether §8 should then become normative.
+3. The adoption of `TAP-draft-netlist-bound-nft` §2.5 (Other netlist formats), part of a proposed amendment to that draft that is not yet merged (§8.3). §2.2 already defines normatively what that §2.5 requires of a format: the `format` string and the members that replace `sha256` and `bytes`. Should the rest of §8 (pool entries, `netlistHashOf`, the exclusion from `storeNetlist` and the Eval extension, eligibility for disputes) become normative once §2.5 is adopted?
 4. The budget values and the witness cap: `(6000, 256, 16)` and 96 KiB are chosen from the gas of the Solidity reference verifier (Appendix B). Should they be revisited once other verifiers exist? A first snapshot of the L1 data fee on OP Stack chains (Appendix B) found it small next to L2 execution: below 1% on Base, and zero on X Layer, whose scalars are 0. That snapshot was taken at very low Ethereum blob fees, and should be repeated before the values are fixed.
 5. Should the dispute game (claims, bonds, timeouts, eligibility) become a separate Application TAP built on §7?
 6. Should a later version allow initial memory contents, for example a bank preloaded from data in the file? Memory starts all zero, like the state (Rationale), so a table that a program changes has to be written at run time; tables that never change belong in ROM, which ROM read ports (`0x13`) can read at several addresses per beat. A preloaded bank would make `memRoot_0` depend on the file, and beat 0 would need it as a public value.
 7. Invalidity proofs: all validity rules of §1.2 except items 5 and 7 are local to a record, and `S` and `nLatch` follow from an agreed `seg_m`, so the segment framework could prove that a file is invalid and void a claim instead of letting the challenger win. Should a later version define such a proof?
 8. Input inconsistency: when `inputRoot` is supplied by an input provider (§7.1, case b), should a later version define a proof that the published inputs do not match `inputRoot`, for example a bisection over the input leaves against data in blobs, so that a claim with inconsistent inputs can be voided on chain?
+9. Dispute eligibility of mint-bound collections: §8.2 starts a game about a `tapnet/2` netlist of a collection only for netlists committed by a manifest of the collection (core §5), as one form of the advance commitment that §7.1 requires. A mint-bound collection (core §8.2, part of the same proposed amendment as core §2.5, §8.3) has no manifest and records the netlist hash of each token at its mint. Should the netlists of such a collection be eligible, with the netlist hash recorded at mint as the commitment, and how would the files then be checked off chain before a game, given that a later mint can record a new hash?
 
 ## Appendix A: Sizing INT-C16 (informative)
 
