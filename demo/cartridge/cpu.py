@@ -1,20 +1,25 @@
 """TAPBOY-8 as a gate-level tapnet/2 netlist: a single-cycle 8-bit accumulator CPU built from NAND and LATCH,
-with its program in one ROM record (a = 8, w = 16) and 256 bytes of RAM made of LATCHes.
+with its program in one ROM record (a = 8, w = 16) and 256 bytes of RAM.
+
+The RAM is bank 0 of the RAM ports (a = 8, w = 8): one RAM read port (0x11) and one RAM write port (0x12,
+we = ST, addr, wdata = ACC). build_cartridge(rom, ram="latch") builds the earlier LATCH-RAM version instead
+(2,048 RAM LATCHes, a 256:1 x 8 read multiplexer and a write decoder), kept for comparison (build/legacy/).
 
 ISA: see isa.py. Pins: nIn = 8 (BTN[0..7]); nOut = 10 (OUT[0..7], VALID, HALTED).
 
     data, info = build_cartridge(rom_words)
     nl = t2.decode(data)
-    outs, new_state = t2.step(nl, state, buttons_bits)
-    info.decode_state(new_state)  ->  {"pc", "acc", "b", "halted", "ram"}
+    _, outs, new_state, new_mem, _ = t2.evaluate_full(nl, state, mem, buttons_bits)
+    info.decode_state(new_state, new_mem)  ->  {"pc", "acc", "b", "halted", "ram"}
 
-Latch order (= latch ordinals, = state bit order): PC[0..7], ACC[0..7], B[0..7], HALTED, RAM[0][0..7], ...,
-RAM[255][0..7]. Signal order: constants, 8 inputs, the latches, the ROM's 16 outputs, logic, output buffers.
+Latch order (= latch ordinals, = state bit order): PC[0..7], ACC[0..7], B[0..7], HALTED (the LATCH-RAM version
+continues with RAM[0][0..7], ..., RAM[255][0..7]). Signal order: constants, 8 inputs, the latches, the ROM's 16
+outputs, logic, output buffers.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence
 
 from _ref import t2
 from isa import OPS, ROM_WORDS
@@ -22,20 +27,25 @@ from netlist_builder import ONE, ZERO, NetBuilder
 
 N_IN, N_OUT = 8, 10
 RAM_BYTES = 256
+RAM_BANK = 0
 
 
 @dataclass
 class CartInfo:
     latch: Dict[str, List[int]]          # register name -> latch ordinals (LSB first)
-    ram_latch: List[List[int]]           # RAM byte k -> latch ordinals of its bits
+    ram_latch: Optional[List[List[int]]]  # LATCH-RAM version: RAM byte k -> latch ordinals of its bits; else None
     signal: Dict[str, List[int]]         # named internal signals (LSB first)
     gates: dict = field(default_factory=dict)
 
-    def decode_state(self, state: Sequence[int]) -> dict:
+    def decode_state(self, state: Sequence[int], mem=None) -> dict:
         def val(ords):
             return sum(state[o] << i for i, o in enumerate(ords))
+        if self.ram_latch is None:
+            ram = list((mem or {}).get(RAM_BANK, [0] * RAM_BYTES))
+        else:
+            ram = [val(r) for r in self.ram_latch]
         return {"pc": val(self.latch["pc"]), "acc": val(self.latch["acc"]), "b": val(self.latch["b"]),
-                "halted": state[self.latch["halted"][0]], "ram": [val(r) for r in self.ram_latch]}
+                "halted": state[self.latch["halted"][0]], "ram": ram}
 
 
 def bits(value: int, n: int = 8) -> List[int]:
@@ -51,8 +61,10 @@ def pins(outputs: Sequence[int]):
     return from_bits(outputs[:8]), outputs[8], outputs[9]
 
 
-def build_cartridge(rom_words: Sequence[int]):
-    assert len(rom_words) == ROM_WORDS
+def build_cartridge(rom_words: Sequence[int], ram: str = "ports"):
+    """ram = "ports" (RAM read and write ports, the default) or "latch" (the LATCH-RAM version)."""
+    assert len(rom_words) == ROM_WORDS and ram in ("ports", "latch")
+    latch_ram = ram == "latch"
     b = NetBuilder(N_IN)
     btn = b.inputs()
 
@@ -60,7 +72,7 @@ def build_cartridge(rom_words: Sequence[int]):
     with b.section("latches"):
         pc, acc, breg = b.register(8), b.register(8), b.register(8)
         halted = b.latch()
-        ram = [b.register(8) for _ in range(RAM_BYTES)]
+        ram_regs = [b.register(8) for _ in range(RAM_BYTES)] if latch_ram else None
 
     # ---- program memory: one ROM record addressed by PC (combinational in the same beat)
     instr = b.rom(pc, 16, rom_words)
@@ -75,8 +87,12 @@ def build_cartridge(rom_words: Sequence[int]):
         idx, _ = b.add(imm, breg)
         addr = b.mux_bus(x_bit, imm, idx)
 
-    with b.section("RAM read (256:1 mux x 8)"):
-        ram_q = b.mux_tree(addr, ram)
+    if latch_ram:
+        with b.section("RAM read (256:1 mux x 8)"):
+            ram_q = b.mux_tree(addr, ram_regs)
+    else:
+        with b.section("RAM read (record 0x11)"):
+            ram_q = b.ram_read(RAM_BANK, addr, 8)
     with b.section("operand mux"):
         opnd = b.mux_bus(m_bit, imm, ram_q)
 
@@ -103,15 +119,19 @@ def build_cartridge(rom_words: Sequence[int]):
         halt_now = b.or_(halted, d["HALT"])
         pc_next = b.mux_bus(halt_now, b.mux_bus(take, pc1, imm), pc)
 
-    with b.section("RAM write (decode + 3 NAND/bit)"):
-        lo = b.decoder(addr[0:4])
-        hi = b.decoder(addr[4:8], enable=d["ST"])
-        for k in range(RAM_BYTES):
-            nwe = b.nand(hi[k >> 4], lo[k & 15])
-            we = b.not_(nwe)
-            for i in range(8):
-                q = ram[k][i]
-                b.set_d(q, b.nand(b.nand(q, nwe), b.nand(acc[i], we)))
+    if latch_ram:
+        with b.section("RAM write (decode + 3 NAND/bit)"):
+            lo = b.decoder(addr[0:4])
+            hi = b.decoder(addr[4:8], enable=d["ST"])
+            for k in range(RAM_BYTES):
+                nwe = b.nand(hi[k >> 4], lo[k & 15])
+                we = b.not_(nwe)
+                for i in range(8):
+                    q = ram_regs[k][i]
+                    b.set_d(q, b.nand(b.nand(q, nwe), b.nand(acc[i], we)))
+    else:
+        with b.section("RAM write (record 0x12)"):
+            b.ram_write(RAM_BANK, addr, acc, d["ST"])     # after the logic that computes addr: backward references
 
     b.set_reg(pc, pc_next)
     b.set_reg(acc, acc_next)
@@ -124,7 +144,7 @@ def build_cartridge(rom_words: Sequence[int]):
     info = CartInfo(
         latch={"pc": [lat[s] for s in pc], "acc": [lat[s] for s in acc], "b": [lat[s] for s in breg],
                "halted": [lat[halted]]},
-        ram_latch=[[lat[s] for s in r] for r in ram],
+        ram_latch=[[lat[s] for s in r] for r in ram_regs] if latch_ram else None,
         signal={"instr": instr, "alu_sum": total, "acc_next": acc_next, "ram_q": ram_q, "opnd": opnd},
         gates=b.gate_counts(),
     )

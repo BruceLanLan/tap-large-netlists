@@ -21,7 +21,7 @@ jobs:
       matrix:
         python-version: ["3.9", "3.11"]
         suite:
-          - { name: assets,    dir: assets/tap-draft-large-netlists, cmd: "python make_vectors.py --check && python test_tapnet2.py" }
+          - { name: assets,    dir: assets/tap-draft-large-netlists, cmd: "python make_vectors.py --check && python test_tapnet2.py && python test_ram.py" }
           - { name: cartridge, dir: demo/cartridge,                  cmd: "python test_cartridge.py" }
           - { name: fixtures,  dir: contracts/test/data,             cmd: "python gen_diff.py && python game_gen.py" }
           - { name: attacks,   dir: measurements/attacks,            cmd: "python attack1.py && python attack2.py && python attack3.py" }

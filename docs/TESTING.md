@@ -1,7 +1,8 @@
 # Testing
 
-Exact commands, run from the repository root, and the results of the last local run (2026-10-19, macOS,
-Python 3.9.6 and 3.11.15, Foundry 1.8.3, solc 0.8.28).
+Exact commands, run from the repository root, and the results of the last local run (Python and cartridge:
+2026-10-20, macOS, Python 3.9.6 and 3.11.15; Solidity: 2026-10-19, Foundry 1.8.3, solc 0.8.28, before the RAM ports were
+added to the Python reference; see section 2).
 
 ## Requirements
 
@@ -14,18 +15,24 @@ Python 3.9.6 and 3.11.15, Foundry 1.8.3, solc 0.8.28).
 cd assets/tap-draft-large-netlists
 python3 make_vectors.py --check
 python3 test_tapnet2.py
+python3 test_ram.py
 ```
 
 | Check | Result |
 |---|---|
-| `make_vectors.py --check` | `vectors.json matches sha256: 902afb750facf46f389d4ca20463cf23a004c98d319c4294c4ab73205b096015` |
-| `test_tapnet2.py` | 49 tests, OK (about 10 s), Python 3.9.6 and 3.11.15 |
+| `make_vectors.py --check` | `vectors.json matches sha256: 3008acc10a1d0694763a1c9f7a59990d172ba70472f09aa27021edf89b93a753` |
+| `test_tapnet2.py` | 49 tests, OK (about 13 s), Python 3.9.6 and 3.11.15 |
+| `test_ram.py` | 18 tests, OK (about 4 s), Python 3.9.6 and 3.11.15: RAM read and write ports, ROM read ports, the memory tree, `verify_segment` with memory proofs, the memory encoding, and disputes with RAM cheaters |
 
 `test_tapnet2.py` loads the independent TAP-02 evaluator `../tap-02/reference.py` (or the file named by the
 environment variable `TAP02_REFERENCE`). Without it, the suite still runs and one test is skipped
 (`OK (skipped=1)`).
 
 ## 2. Solidity reference implementation
+
+**Pending:** the Solidity verifier, game and test-data generators do not implement RAM ports, ROM read ports or
+the `latchRoot` / `memRoot` arguments of `verify_segment` yet, and `test/Vectors.t.sol` still pins the previous
+SHA-256 of `vectors.json`. The results below are those of the last run before the RAM ports were added.
 
 ```
 cd contracts
@@ -72,9 +79,9 @@ python3 dispute_demo.py
 
 | Check | Result |
 |---|---|
-| `test_cartridge.py` | 15 tests, OK (about 20 s), Python 3.9.6 and 3.11.15 |
-| `report.py` | rewrites `build/hello.tapnet2` and `build/dodge.tapnet2`, byte-identical to the committed files; 3 canonical segments, honest witnesses 372 to 968 bytes |
-| `dispute_demo.py` | every cheater loses; each dispute that reaches the verifier is decided by exactly one call (10 or 12 rounds) |
+| `test_cartridge.py` | 17 tests, OK (about 8 s), Python 3.9.6 and 3.11.15 |
+| `report.py` | rewrites `build/*.tapnet2` (RAM ports: 5,781 bytes, 1 chunk, 1 canonical segment, honest witnesses 48 to 224 bytes) and `build/legacy/*.tapnet2` (LATCH RAM: 104,076 bytes, 7 chunks, 3 segments, 48 to 968 bytes), byte-identical to the committed files |
+| `dispute_demo.py` | six scenarios; every cheater loses; each dispute that reaches the verifier is decided by exactly one call of `verify_segment` (8 or 9 rounds) |
 
 ## 5. Measurements
 

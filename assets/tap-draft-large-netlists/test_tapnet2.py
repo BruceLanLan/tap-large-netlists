@@ -384,9 +384,14 @@ class TestWitnessFormat(unittest.TestCase):
             v = json.load(f)
         files = {k: bytes.fromhex(e["hex"]) for k, e in v["files"].items()}
         stores = {k: t2.oracle_for(d) for k, d in files.items()}
+        hx = lambda x: bytes.fromhex(x[2:])  # noqa: E731
+        tup = lambda x: t2.SegTuple(x[0], x[1], x[2], hx(x[3]), hx(x[4]), *([hx(x[5])] if len(x) > 5 else []))  # noqa
         for c in v["verifySegment"]:
             ser = bytes.fromhex(c["witnessHex"])
-            self.assertEqual(t2.serialize_seg_witness(t2.parse_seg_witness(ser)), ser)
+            try:
+                self.assertEqual(t2.serialize_seg_witness(t2.parse_seg_witness(ser)), ser)
+            except t2.Invalid:
+                self.assertFalse(c["expect"], c["case"])      # a malformed encoding (memory extension cases)
             store, nh2 = stores[c["example"]]
             if c["oracle"] == "none":
                 store = t2.LargeStore([nh2])
@@ -396,16 +401,16 @@ class TestWitnessFormat(unittest.TestCase):
                 store = t2.LargeStore([nh2])
                 store.beginLarge(nh2, len(data), lv[-1][0])
                 store.putChunk(nh2, 0, t2.split_chunks(data)[0], t2.chunk_proof(data, 0, lv))
-            tup = lambda x: t2.SegTuple(x[0], x[1], x[2], bytes.fromhex(x[3][2:]), bytes.fromhex(x[4][2:]))  # noqa
             bud = t2.Budget(**c["budgetUsed"])
-            got = t2.verify_segment(store, nh2, bytes.fromhex(c["stateRoot"][2:]), tup(c["a"]), tup(c["b"]), ser, bud)
+            self.assertEqual(len(c["a"]), 6 if files[c["example"]][7] & t2.FLAG_MEM else 5)
+            got = t2.verify_segment(store, nh2, hx(c["latchRoot"]), tup(c["a"]), tup(c["b"]), ser, bud,
+                                    hx(c["memRoot"]))
             self.assertEqual(got, c["expect"], c["case"])
         for c in v["verifyBeatEnd"]:
             ser = bytes.fromhex(c["witnessHex"])
             self.assertEqual(t2.serialize_end_witness(t2.parse_end_witness(ser)), ser)
             store, nh2 = stores[c["example"]]
-            sm = c["segM"]
-            seg_m = t2.SegTuple(sm[0], sm[1], sm[2], bytes.fromhex(sm[3][2:]), bytes.fromhex(sm[4][2:]))
+            seg_m = tup(c["segM"])
             et = lambda x: t2.EndTuple(x[0], bytes.fromhex(x[1][2:]))  # noqa
             got = t2.verify_beat_end(store, nh2, c["nOut"], seg_m, et(c["a"]), et(c["b"]), ser)
             self.assertEqual(got, c["expect"], c["case"])

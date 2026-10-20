@@ -1,4 +1,9 @@
 """Informal simulation of the dispute game of spec section 7 for large netlists.
+Files with RAM ports (MEM flag): parties keep the memory; the referee reads the flags byte from chunk 0, takes
+the claimant's opening (latchRoot_t, memRoot_t) of the agreed stateRoot_t at level 3 (memRoot_t goes into the
+public seg_0), hashes M into segment leaves, checks stateRoot_{t+1} = SHA-256(0x0C || last state root ||
+seg_m.M), and passes (latchRoot_t, memRoot_t) to verify_segment. Cheat {"kind": "mem", "t", "bank", "addr",
+"bit"} forges the memory after the first write port of that bank in beat t.
 
 Claim = (netlistHash2, T, K, inputRoot, checkpointRoot). The claimant publishes the full list of checkpoint
 leaves (0x06, at t = 0, K, 2K, ..., T); the referee derives checkpointRoot from that list, so the list and the
@@ -97,12 +102,14 @@ class Party:
         self.name, self.nl, self.inputs, self.K, self.budget, self.cheat = name, nl, inputs, K, budget, cheat
         self.T = len(inputs)
         self.states = [[0] * nl.n_latch]
+        self.mems: List[dict] = [{}]
         self.io = [t2.EMPTY]
         for t in range(self.T):
             _, outs, ns = self._eval(t)
             self.states.append(ns)
+            self.mems.append(self._last_mem)
             self.io.append(t2.io_next(self.io[-1], t2.out_root(outs)))
-        self.sroots = t2.beat_state_roots(self.states)
+        self.sroots = t2.full_state_roots(nl, self.states, self.mems)
         self.cp_ts = t2.checkpoint_times(self.T, K)
         self.cp_leaves = [t2.checkpoint_leaf(*self.leaf(t)) for t in self.cp_ts]
         self.in_levels = t2.input_levels(inputs)
@@ -117,11 +124,20 @@ class Party:
         c = self.cheat or {}
         flips = {c["signal"]} if c.get("kind") in ("gate", "rom", "segmentation") and c["t"] == t else set()
         sflip = {c["latch"]} if c.get("kind") == "state" and c["t"] == t else set()
-        V, outs, ns = t2.evaluate(self.nl, self.states[t], self.inputs[t], flips, sflip)
+        mflip = ({(c["bank"], c["addr"], c["bit"])} if c.get("kind") == "mem" and c["t"] == t else set())
+        V, outs, ns, nm, ev = t2.evaluate_full(self.nl, self.states[t], self.mems[t], self.inputs[t], flips,
+                                               sflip, mflip)
+        self._last_mem, self._last_events = nm, ev
         if c.get("kind") == "eof_extra" and c["t"] == t:   # honest values, lied outputs
             outs = list(outs)
             outs[c["signal"] - (self.nl.n_signals - self.nl.n_out)] ^= 1
         return V, outs, ns
+
+    def state_opening(self, t: int):
+        """(latchRoot, memRoot) of stateRoot_t for a MEM file (None for EMPTY or a file without MEM)."""
+        if not self.nl.has_mem or self.sroots[t] == t2.EMPTY:
+            return None
+        return t2.state_root(self.states[t]), t2.mem_root(self.nl, self.mems[t])
 
     def leaf(self, t: int) -> Tuple[int, bytes, bytes]:
         sr = self.sroots[t]
@@ -172,11 +188,12 @@ class Party:
     def details(self, t: int) -> dict:
         if t not in self._details:
             V, outs, ns = self._eval(t)
-            seg = t2.tuples_for_boundaries(self.nl, V, self.bounds)
+            ev = self._last_events
+            seg = t2.tuples_for_boundaries(self.nl, V, self.bounds, self.mems[t], ev)
             out = t2.out_tuples(outs)
             st = t2.state_tuples(ns)
             claimed = self.leaf(t + 1)[1]
-            if claimed != st[-1].root:        # forger: keep the reveal consistent with the forged leaf
+            if not self.nl.has_mem and claimed != st[-1].root:   # forger: keep the reveal consistent
                 st[-1] = t2.EndTuple(st[-1].ordinal, claimed)
             if self.cheat and self.cheat["kind"] == "eof_extra" and self.cheat["t"] == t:
                 # "justify" the lied outputs with one more tuple after EOF carrying a fake P_m
@@ -186,10 +203,10 @@ class Party:
                 seg.append(t2.SegTuple(m.byte_offset, m.first_signal, m.latch_ordinal,
                                        t2.prefix_root(t2.DOM_SIGNAL, V2, m.first_signal), m.d))
             lists = {"seg": seg, "out": out, "state": st}
-            leaves = {"seg": [t2.seg_tuple_leaf(j, s) for j, s in enumerate(seg)],
+            leaves = {"seg": [t2.seg_tuple_leaf(j, s, self.nl.has_mem) for j, s in enumerate(seg)],
                       "out": [t2.end_tuple_leaf("out", k, e) for k, e in enumerate(out)],
                       "state": [t2.end_tuple_leaf("state", k, e) for k, e in enumerate(st)]}
-            self._details[t] = {"V": V, "outs": outs, "ns": ns, "lists": lists,
+            self._details[t] = {"V": V, "outs": outs, "ns": ns, "lists": lists, "events": ev,
                                 "levels": {k: t2.merkle_levels(v) for k, v in leaves.items()}}
         return self._details[t]
 
@@ -208,7 +225,11 @@ class Party:
         if kind == "seg":
             lst = d["lists"]["seg"]
             end = lst[j].byte_offset if j < len(lst) else len(self.nl.data)
-            w = t2.build_seg_witness(self.nl, d["V"], self.states[t], lst[j - 1], end, self.leaf(t)[1])
+            lr = self.leaf(t)[1]
+            if self.nl.has_mem and lr != t2.EMPTY:      # the latchRoot of the opening of stateRoot_t
+                lr = t2.state_root(self.states[t])
+            w = t2.build_seg_witness(self.nl, d["V"], self.states[t], lst[j - 1], end, lr, self.mems[t],
+                                     d["events"])
             return t2.serialize_seg_witness(w)
         if kind == "out":
             return t2.serialize_end_witness(t2.build_out_witness(self.nl, d["V"], d["outs"], j - 1))
@@ -314,6 +335,7 @@ class Referee:
         P = {"claimant": cl, "challenger": ch}
         nh2 = claim.netlist_hash2
         file_len, n_in, n_out, _, _ = self.store.largeInfo(nh2)
+        has_mem = bool(self.store.largeChunk(nh2, 0)[7] & t2.FLAG_MEM)    # flags byte (spec 7.4)
         cps = t2.checkpoint_times(claim.T, claim.K)
         ncp = len(cps)
         cp_levels = t2.merkle_levels(published)      # anyone can build proofs from the published list
@@ -382,6 +404,13 @@ class Referee:
         except t2.Invalid:
             raise Lose("claimant", "revealed inputs are malformed")
 
+        latch_t, mem_t = before[1], t2.ZERO_MEM     # without MEM, or stateRoot_t = EMPTY: (stateRoot_t, ZERO_MEM)
+        if has_mem and before[1] != t2.EMPTY:       # the claimant opens the agreed stateRoot_t (spec 7.4)
+            op = cl.state_opening(t)
+            if op is None or t2.combine_state(*op) != before[1]:
+                raise Lose("claimant", "no valid opening of the agreed stateRoot")
+            latch_t, mem_t = op
+
         com = {who: p.commit_details(t) for who, p in P.items()}
         rounds["tuples"] = 1
 
@@ -391,11 +420,11 @@ class Referee:
             if not 0 <= j < n:
                 raise Lose(who, f"{kind} tuple {j} does not exist")
             v, pr2 = p.reveal_tuple(t, kind, j)
-            lf = t2.seg_tuple_leaf(j, v) if kind == "seg" else t2.end_tuple_leaf(kind, j, v)
+            lf = t2.seg_tuple_leaf(j, v, has_mem) if kind == "seg" else t2.end_tuple_leaf(kind, j, v)
             self._check(who, root, n, j, lf, pr2)
             return v
 
-        seg0_pub = t2.initial_tuple(n_in, in_bits)
+        seg0_pub = t2.initial_tuple(n_in, in_bits, mem_t)
         ends3 = {}
         for who in P:
             n = {k: com[who][k][1] for k in com[who]}
@@ -411,7 +440,8 @@ class Referee:
                 raise Lose(who, "beat-end lists must start at (0, EMPTY)")
             if om.ordinal != n_out or lf[2] != t2.io_next(before[2], om.root):
                 raise Lose(who, "output tuples do not match the claimed ioHash")
-            if qm.ordinal != sm.latch_ordinal or lf[1] != qm.root:
+            want_sr = t2.combine_state(qm.root, sm.m) if has_mem else qm.root
+            if qm.ordinal != sm.latch_ordinal or lf[1] != want_sr:
                 raise Lose(who, "state tuples do not match the claimed stateRoot")
             ends3[who] = {"seg": sm, "out": om, "state": qm}
 
@@ -444,7 +474,7 @@ class Referee:
         w = P[prover].witness(t, kind, j)
         rounds["verify"] = 1
         if kind == "seg":
-            ok = t2.verify_segment(self.store, nh2, before[1], a, b, w, self.budget)
+            ok = t2.verify_segment(self.store, nh2, latch_t, a, b, w, self.budget, mem_t)
             final = f"verify_segment(seg_{j - 1} -> seg_{j})"
         else:
             ok = t2.verify_beat_end(self.store, nh2, n_out, ends3["claimant"]["seg"], a, b, w)
@@ -623,7 +653,42 @@ def scenario_setup(name: str):
             "g_empty_state": {"kind": "empty_state", "t": 2},
         }
         return data, nl, inputs, 2, t2.DEFAULT_BUDGET, cheats
+    if name in ("ram16", "rammix"):
+        # files with RAM ports (MEM flag): lies about a RAM read, a forged memory write, the write data, a LATCH,
+        # and the write data in beat 0 (memRoot_0 = ZERO_MEM)
+        if name == "ram16":
+            data, inputs, bank, K, budget = examples.ram16_file(), examples.ram16_inputs(40, 5), 3, 4, t2.TINY_BUDGET
+        else:
+            data, inputs, bank, K, budget = examples.rammix_file(), examples.rammix_inputs(40, 6), 0, 4, \
+                t2.DEFAULT_BUDGET
+        nl = t2.decode(data)
+        ramr = [r.first_out for r in nl.records if r.raw.op == t2.OP_RAMR]
+        ramw = [r for r in nl.records if r.raw.op == t2.OP_RAMW][0]
+        wdata = ramw.raw.refs[1 + ramw.raw.a]
+        a, _ = nl.banks[bank]
+        pick = lambda cands: _observable_any(nl, inputs, K, budget, cands)  # noqa: E731
+        cheats = {
+            "a_ram_read": pick([{"kind": "gate", "t": t, "signal": ramr[p] + j} for t in (13, 21, 30)
+                                for p in range(len(ramr)) for j in range(4)]),
+            "b_ram_write": pick([{"kind": "mem", "t": t, "bank": bank, "addr": k, "bit": 1} for t in (17, 26)
+                                 for k in range(1 << a)]),
+            "c_write_data": pick([{"kind": "gate", "t": t, "signal": wdata} for t in range(9, 40)]),
+            "d_latch": {"kind": "state", "t": 22, "latch": 2},
+            "e_beat0_write": pick([{"kind": "gate", "t": 0, "signal": s_} for s_ in ramw.raw.refs[1 + a:]]
+                                  + [{"kind": "mem", "t": 0, "bank": bank, "addr": k, "bit": 0}
+                                     for k in range(1 << a)]),
+        }
+        return data, nl, inputs, K, budget, cheats
     raise KeyError(name)
+
+
+def _observable_any(nl, inputs, K, budget, candidates):
+    """First cheat dict in candidates that changes the claim."""
+    honest = Party("h", nl, inputs, K, budget)
+    for c in candidates:
+        if Party("x", nl, inputs, K, budget, c).cp_leaves != honest.cp_leaves:
+            return c
+    raise AssertionError("no observable fault among the candidates")
 
 
 def setup_game(name: str):
@@ -659,10 +724,14 @@ def run_scenarios(names=("message", "large"), verbose: bool = False) -> Dict[str
             for role, (cl, chal) in (("claimant", (liar, honest)), ("challenger", (honest, liar))):
                 results[f"{ex}/{cname}_as_{role}"] = run_one(ref, nh2, cl, chal)
         # a lying claimant that withholds, or reveals other, inputs at level 3
-        base = dict(cheats["c_rom"])
+        base = dict(cheats["c_rom"] if "c_rom" in cheats else cheats["c_write_data"])
         for how in ("withhold", "wrong"):
             liar = Party(f"cheater_inputs_{how}", nl, inputs, K, budget, dict(base, inputs=how))
             results[f"{ex}/h_inputs_{how}_as_claimant"] = run_one(ref, nh2, liar, honest)
+        if nl.has_mem:      # a lying claimant that does not open the agreed stateRoot_t at level 3 (spec 7.4)
+            liar = Party("cheater_no_opening", nl, inputs, K, budget, cheats["b_ram_write"])
+            liar.state_opening = lambda t: None
+            results[f"{ex}/i_no_opening_as_claimant"] = run_one(ref, nh2, liar, honest)
     return results
 
 

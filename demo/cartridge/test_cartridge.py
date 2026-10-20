@@ -22,14 +22,14 @@ def lockstep(test: unittest.TestCase, rom, buttons, extra_beats: int = 0):
     data, info = build_cartridge(rom)
     nl = t2.decode(data)
     m = Machine(rom)
-    state = [0] * nl.n_latch
+    state, mem = [0] * nl.n_latch, {}
     out_pins = []
     for t, btn in enumerate(list(buttons) + [0] * extra_beats):
-        outs, state = t2.step(nl, state, bits(btn))
+        _, outs, state, mem, _ = t2.evaluate_full(nl, state, mem, bits(btn))
         got = pins(outs)
         want = m.step(btn)
         test.assertEqual(got, want, f"pins differ at beat {t}")
-        test.assertEqual(info.decode_state(state), m.snapshot(), f"state differs after beat {t}")
+        test.assertEqual(info.decode_state(state, mem), m.snapshot(), f"state differs after beat {t}")
         out_pins.append(got)
     return out_pins
 
@@ -130,14 +130,17 @@ class CartridgeTests(unittest.TestCase):
         words, _ = load("dodge")
         data, info = build_cartridge(words)
         met = t2.check_file(data)
-        self.assertGreater(len(data), 49152)
+        self.assertEqual(len(data), 5781)                     # one chunk (the LATCH-RAM build: 104,076 bytes, 7)
         self.assertEqual(met["nand"], info.gates["nand"])
-        self.assertEqual(met["latch"], 2073)
+        self.assertEqual(met["latch"], 25)                    # was 2,073 (2,048 RAM latches are now a bank)
         self.assertEqual((met["romRecords"], met["romBits"]), (1, 256 * 16))
+        self.assertEqual((met["ramBanks"], met["ramBits"], met["ramReadPorts"], met["ramWritePorts"]),
+                         (1, 2048, 1, 1))
         self.assertEqual((met["nIn"], met["nOut"]), (8, 10))
-        self.assertEqual(t2.n_chunks(len(data)), 7)
+        self.assertEqual(t2.n_chunks(len(data)), 1)
         bounds = t2.segment_boundaries(data, t2.DEFAULT_BUDGET)
-        self.assertEqual(bounds[-1], (len(data), met["signals"], 2073))
+        self.assertEqual(bounds[-1], (len(data), met["signals"], 25))
+        self.assertEqual(len(bounds) - 1, 1)                  # one canonical segment (was 3)
 
     def test_hello(self):
         rom, _ = load("hello")
@@ -176,8 +179,8 @@ class DisputeTests(unittest.TestCase):
         import dispute_demo
         s, results = dispute_demo.run_all(verbose=False)
         dispute_demo.check(results)
-        b = results["B inflated score (state) vs honest checker"]
-        self.assertGreater(b["claimedPins"][0], s["final_score"])
+        for k in ("B inflated score (RAM write) vs honest checker", "E inflated score (RAM read) vs honest checker"):
+            self.assertGreater(results[k]["claimedPins"][0], s["final_score"])
 
     def test_score_opening_rejects_other_score(self):
         import bisect_sim as bs
@@ -191,6 +194,40 @@ class DisputeTests(unittest.TestCase):
         fake = bits(98) + outs[8:]
         with self.assertRaises(ValueError):
             dispute_demo.open_final_score(pub, T, p.sroots[T], p.io[T - 1], fake)
+
+
+class LegacyComparisonTests(unittest.TestCase):
+    """The LATCH-RAM build (build_cartridge(rom, ram="latch"); build/legacy/*.tapnet2) and the RAM-port build give
+    identical pins on every beat, and the LATCH RAM holds the same 256 bytes as bank 0."""
+
+    def test_legacy_files_reproducible(self):
+        import os
+        here = os.path.dirname(os.path.abspath(__file__))
+        for prog in ("hello", "dodge"):
+            rom, _ = load(prog)
+            with open(os.path.join(here, "build", "legacy", prog + ".tapnet2"), "rb") as f:
+                self.assertEqual(f.read(), build_cartridge(rom, ram="latch")[0])
+            with open(os.path.join(here, "build", prog + ".tapnet2"), "rb") as f:
+                self.assertEqual(f.read(), build_cartridge(rom)[0])
+
+    def test_identical_pins(self):
+        runs = []
+        hello, _ = load("hello")
+        runs.append((hello, run_until_halt(hello)[0] + [0] * 4))
+        dodge, names = load("dodge")
+        for who in (good_player(names), lazy_player, random_player(9)):
+            runs.append((dodge, play(dodge, names, who) + [0] * 2))
+        for rom, buttons in runs:
+            old = t2.decode(build_cartridge(rom, ram="latch")[0])
+            new = t2.decode(build_cartridge(rom)[0])
+            self.assertEqual((len(old.data), old.n_latch, len(new.data), new.n_latch), (104076, 2073, 5781, 25))
+            so, sn, mem = [0] * old.n_latch, [0] * new.n_latch, {}
+            for t, btn in enumerate(buttons):
+                oo, so = t2.step(old, so, bits(btn))
+                _, on, sn, mem, _ = t2.evaluate_full(new, sn, mem, bits(btn))
+                self.assertEqual(oo, on, f"pins differ at beat {t}")
+            self.assertEqual([so[o] for o in range(25)], sn)           # PC, ACC, B, HALTED latches
+            self.assertEqual([sum(so[25 + 8 * k + i] << i for i in range(8)) for k in range(256)], mem[0])
 
 
 if __name__ == "__main__":

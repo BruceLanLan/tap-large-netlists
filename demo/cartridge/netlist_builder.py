@@ -1,4 +1,6 @@
-"""A small Python DSL for NAND / LATCH / ROM netlists, emitting tapnet/2 bytes through assets/tap-draft-large-netlists/tapnet2.py.
+"""A small Python DSL for NAND / LATCH / ROM / RAM-port netlists, emitting tapnet/2 bytes through
+assets/tap-draft-large-netlists/tapnet2.py. ram_read() emits a RAM read port (0x11), ram_write() a RAM write port
+(0x12); finish() sets the MEM flag when the file has RAM ports.
 
 Signals are plain ints (tapnet signal indices). A bus is a list of signals, least significant bit first.
 
@@ -184,6 +186,22 @@ class NetBuilder:
         self.next += w
         return outs
 
+    def ram_read(self, bank: int, addr: Bus, w: int) -> Bus:
+        """RAM read port (0x11): w signals = mem_bank[addr] at the start of the beat."""
+        for r in addr:
+            assert 0 <= r < self.next, "RAM address references must point backwards"
+        self.recs.append(("RR", bank, list(addr), w))
+        outs = list(range(self.next, self.next + w))
+        self.next += w
+        return outs
+
+    def ram_write(self, bank: int, addr: Bus, wdata: Bus, we: int) -> None:
+        """RAM write port (0x12): if we, mem_bank[addr] := wdata for the next beat.
+        All references point backwards (the record goes after the logic that computes them)."""
+        for r in list(addr) + list(wdata) + [we]:
+            assert 0 <= r < self.next, "RAM write references must point backwards"
+        self.recs.append(("RW", bank, list(addr), list(wdata), we))
+
     # ------------------------------------------------------------------ buses
     @staticmethod
     def const(value: int, n: int) -> Bus:
@@ -271,10 +289,15 @@ class NetBuilder:
             elif r[0] == "L":
                 buf += t2.enc_latch(self.latch_d[li])
                 li += 1
+            elif r[0] == "RR":
+                buf += t2.enc_ramr(r[1], r[2], r[3])
+            elif r[0] == "RW":
+                buf += t2.enc_ramw(r[1], r[2], r[3], r[4])
             else:
                 _, addr, w, entries = r
                 buf += t2.enc_rom(addr, w, t2.pack_rom_data(entries, len(addr), w))
-        data = t2.make_file(bytes(buf), self.n_in, self.n_out)
+        has_ram = any(r[0] in ("RR", "RW") for r in self.recs)
+        data = t2.make_file(bytes(buf), self.n_in, self.n_out, flags=t2.FLAG_MEM if has_ram else 0)
         t2.check_file(data)
         return data
 
@@ -287,6 +310,8 @@ class NetBuilder:
             "latch": len(self.latch_sig),
             "romRecords": len(roms),
             "romBits": sum((1 << len(r[1])) * r[2] for r in roms),
+            "ramReadPorts": sum(1 for r in self.recs if r[0] == "RR"),
+            "ramWritePorts": sum(1 for r in self.recs if r[0] == "RW"),
             "signals": self.next,
             "nandBySection": {k: v for k, v in self.counts.items() if v},
         }

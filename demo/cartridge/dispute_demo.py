@@ -6,11 +6,15 @@ because the cartridge's OUT pins show ACC on every beat, and after HALT ACC hold
 leaf (time T) commits io_T = H(0x08 || io_{T-1} || outRoot_{T-1}), and outRoot_{T-1} commits the 10 output
 bits of the final beat. open_final_score() checks such an opening against the published leaf.
 
+RAM is bank 0 of the RAM ports (records 0x11 / 0x12), so a lie about RAM is a lie about a RAM write or read.
+
 Scenarios (all against the same stored cartridge, default budget (6000, 256, 16)):
   A  honest claim,                    honest challenger   -> no dispute
-  B  inflated score via the RAM state (flip a SCORE bit after the last ST [SCORE]),   honest challenger
+  B  inflated score via a RAM write   (forge RAM[SCORE] bit after the last ST [SCORE]), honest challenger
   C  inflated score via a gate        (flip an ALU sum bit in the last ADD #1 on the score), honest challenger
   D  honest claim,                    cheating challenger (the cheater of B tries to knock the honest claim)
+  E  inflated score via a RAM read    (flip a bit of the RAM read port output in the last LD [SCORE])
+  F  honest claim,                    cheating challenger (the cheater of E)
 
     python3 dispute_demo.py
 """
@@ -55,8 +59,10 @@ def setup():
     buttons = play(words, names, good_player(names))
     inputs = [bits(x) for x in buttons]
     # beats (in the honest run) of the last score update: LD [SCORE] / ADD #1 / ST [SCORE] at label `survive`
-    m, add_beats, st_beats = Machine(words), [], []
+    m, add_beats, st_beats, ld_beats = Machine(words), [], [], []
     for t, x in enumerate(buttons):
+        if m.pc == names["survive"] and not m.halted:
+            ld_beats.append(t)
         if m.pc == names["survive"] + 1 and not m.halted:
             add_beats.append(t)
         if m.pc == names["survive"] + 2 and not m.halted:
@@ -64,7 +70,8 @@ def setup():
         m.step(x)
     final_score = m.acc
     return {"words": words, "names": names, "data": data, "info": info, "nl": nl, "buttons": buttons,
-            "inputs": inputs, "final_score": final_score, "t_add": add_beats[-1], "t_st": st_beats[-1]}
+            "inputs": inputs, "final_score": final_score, "t_add": add_beats[-1], "t_st": st_beats[-1],
+            "t_ld": ld_beats[-1]}
 
 
 def inflate_bit(score: int) -> int:
@@ -77,12 +84,15 @@ def inflate_bit(score: int) -> int:
 def cheats(s):
     info, score = s["info"], s["final_score"]
     k = inflate_bit(score)
-    score_ram = info.ram_latch[s["names"]["SCORE"]]
     sum_sig = info.signal["alu_sum"][k]
     assert sum_sig >= 2 + s["nl"].n_in, "cheat target must be a gate, not a constant or input"
+    # LD [SCORE] reads score - 1 (the ADD #1 follows); flipping read bit k inflates the final score by 2^k
+    # when that bit is 0 in score - 1 too: pick the bit for score - 1
+    kr = inflate_bit(score - 1)
     return {
-        "state": {"kind": "state", "t": s["t_st"], "latch": score_ram[k]},
+        "state": {"kind": "mem", "t": s["t_st"], "bank": 0, "addr": s["names"]["SCORE"], "bit": k},
         "gate": {"kind": "gate", "t": s["t_add"], "signal": sum_sig},
+        "read": {"kind": "gate", "t": s["t_ld"], "signal": info.signal["ram_q"][kr]},
     }, k
 
 
@@ -97,15 +107,18 @@ def run_all(verbose: bool = True):
 
     honest = bs.Party("honest player", nl, inputs, K, BUDGET)
     honest2 = bs.Party("honest checker", nl, inputs, K, BUDGET)
-    liar_state = bs.Party("cheater (RAM state)", nl, inputs, K, BUDGET, cs["state"])
+    liar_state = bs.Party("cheater (RAM write)", nl, inputs, K, BUDGET, cs["state"])
     liar_gate = bs.Party("cheater (ALU gate)", nl, inputs, K, BUDGET, cs["gate"])
-    for liar in (liar_state, liar_gate):
+    liar_read = bs.Party("cheater (RAM read)", nl, inputs, K, BUDGET, cs["read"])
+    for liar in (liar_state, liar_gate, liar_read):
         assert liar.cp_leaves != honest.cp_leaves, "the lie must change the claim"
 
     scen = [("A honest claim vs honest checker", honest, honest2),
-            ("B inflated score (state) vs honest checker", liar_state, honest),
+            ("B inflated score (RAM write) vs honest checker", liar_state, honest),
             ("C inflated score (gate) vs honest checker", liar_gate, honest),
-            ("D honest claim vs cheating challenger", honest, liar_state)]
+            ("D honest claim vs cheating challenger", honest, liar_state),
+            ("E inflated score (RAM read) vs honest checker", liar_read, honest),
+            ("F honest claim vs cheating challenger (RAM read)", honest, liar_read)]
     results = {}
     for name, cl, ch in scen:
         published = cl.claim_data(nh2)[4]
@@ -121,8 +134,9 @@ def run_all(verbose: bool = True):
         print(f"   {len(bounds) - 1} canonical segments under budget {tuple(BUDGET)}")
         print(f"== run: T = {T} beats, K = {K} -> {len(t2.checkpoint_times(T, K))} published checkpoint leaves")
         print(f"   honest final score {s['final_score']}; cheaters flip bit {k} (+{1 << k})")
-        print(f"   state cheat: RAM[SCORE] bit {k} after beat {s['t_st']};  gate cheat: ALU sum bit {k}"
-              f" (signal {cs['gate']['signal']}) in beat {s['t_add']}")
+        print(f"   RAM-write cheat: RAM[SCORE] bit {k} after the write port in beat {s['t_st']};  gate cheat: "
+              f"ALU sum bit {k} (signal {cs['gate']['signal']}) in beat {s['t_add']};  RAM-read cheat: read-port "
+              f"signal {cs['read']['signal']} in beat {s['t_ld']}")
         for name, r in results.items():
             out, valid, halted = r["claimedPins"]
             print(f"\n-- {name}")
@@ -137,13 +151,12 @@ def run_all(verbose: bool = True):
 
 
 def check(results) -> None:
-    a, b, c, d = (results[k] for k in sorted(results))
+    a, b, c, d, e, f = (results[k] for k in sorted(results))
     assert a["verifyCalls"] == 0 and a["winner"] == "honest player"
-    for r in (b, c):
+    for r in (b, c, d, e, f):
         assert r["winner"] == "honest player" and r["verifyCalls"] == 1, r
-    assert d["winner"] == "honest player" and d["verifyCalls"] == 1, d
-    assert b["final"].startswith("verify_beat_end[state]"), b["final"]
-    assert c["final"].startswith("verify_segment"), c["final"]
+    for r in (b, c, d, e, f):   # with one segment and memory in M, every lie is decided by verify_segment
+        assert r["final"].startswith("verify_segment"), r["final"]
 
 
 if __name__ == "__main__":

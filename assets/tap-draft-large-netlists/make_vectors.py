@@ -24,6 +24,8 @@ def bits(b) -> str:
 
 
 def wser(w) -> bytes:
+    if isinstance(w, (bytes, bytearray)):
+        return bytes(w)
     return t2.serialize_seg_witness(w) if isinstance(w, t2.SegWitness) else t2.serialize_end_witness(w)
 
 
@@ -235,14 +237,24 @@ def build_vectors() -> dict:
     v: dict = {}
     v["meta"] = {
         "description": "Test vectors for the draft TAP 'Large Netlists and Verifiable Execution' (tapnet/2). "
-                       "Bit strings list bit i at position i. Tuples: [byteOffset, firstSignal, latchOrdinal, P, D]; "
-                       "beat-end tuples: [ordinal, root]. Witnesses are encoded as in section 6.3 of the TAP; "
+                       "Bit strings list bit i at position i. Segment tuples: [byteOffset, firstSignal, latchOrdinal, "
+                       "P, D] for files without the MEM flag, [byteOffset, firstSignal, latchOrdinal, P, D, M] for "
+                       "files with it; beat-end tuples: [ordinal, root]. verifySegment cases give the verifier "
+                       "arguments latchRoot and memRoot (section 6.1) and, for information, the beat's stateRoot. "
+                       "Memory contents are given per bank as lists of entries (integers). "
+                       "Witnesses are encoded as in section 6.3 of the TAP; "
                        "the verifiers read the file through a chunk oracle, here a store holding the file of "
                        "'example' (oracle 'file'), an empty store ('none') or a store holding chunk 0 only "
                        "('chunk0').",
         "chunkSize": t2.CHUNK,
         "domains": {"node": 1, "chunkLeaf": 2, "netlistHash2": 3, "signalWord": 4, "stateWord": 5,
-                    "checkpointLeaf": 6, "tupleLeaf": 7, "ioChain": 8, "latchDWord": 9, "inputLeaf": 10},
+                    "checkpointLeaf": 6, "tupleLeaf": 7, "ioChain": 8, "latchDWord": 9, "inputLeaf": 10,
+                    "memoryWordLeaf": 11, "memStateRoot": 12},
+        "flagMem": t2.FLAG_MEM,
+        "memoryTreeHeight": t2.MEM_HEIGHT,
+        "memWeight": t2.MEM_WEIGHT,
+        "zeroMem": t2.hx(t2.ZERO_MEM),
+        "zeroSubtrees": [t2.hx(z) for z in t2.ZERO_H],
         "defaultBudget": t2.DEFAULT_BUDGET._asdict(),
         "tinyBudget": t2.TINY_BUDGET._asdict(),
         "empty": t2.hx(t2.EMPTY),
@@ -250,7 +262,7 @@ def build_vectors() -> dict:
 
     # files, metrics, chunking
     files = {}
-    for name, fn in examples.EXAMPLES.items():
+    for name, fn in list(examples.EXAMPLES.items()) + list(examples.RAM_EXAMPLES.items()):
         data = fn()
         lv = t2.chunk_levels(data)
         entry = {
@@ -260,7 +272,7 @@ def build_vectors() -> dict:
         }
         if len(lv[0]) > 1:
             entry["chunkProofs"] = [[t2.hx(x) for x in t2.chunk_proof(data, i, lv)] for i in range(len(lv[0]))]
-        if name != "large":
+        if name not in ("large", "ram16", "rammix"):      # no expansion for "large" (size) or MEM files
             exp = t2.expand_rom_to_tapnet1(data)
             nl1 = t2.decode(exp, (t2.VERSION1,))
             entry["expansion"] = {"sha256": t2.hx(t2.sha256(exp)), "bytes": len(exp), "nand": nl1.nand,
@@ -320,9 +332,11 @@ def build_vectors() -> dict:
     # segmentations, segment and beat-end verification (the chunk oracle is a store holding the file)
     segs, vseg, vend = {}, [], []
 
-    def seg_case(example, budget_name, j, a, b, sroot, w, expect, case, budget, store_note="file", **extra):
-        e = {"example": example, "budget": budget_name, "j": j, "a": a.as_json(), "b": b.as_json(),
-             "stateRoot": t2.hx(sroot), "oracle": store_note, "expect": expect, "case": case,
+    def seg_case(example, budget_name, j, a, b, sroot, w, expect, case, budget, store_note="file",
+                 mem_root=t2.ZERO_MEM, beat_root=None, has_mem=False, **extra):
+        e = {"example": example, "budget": budget_name, "j": j, "a": a.as_json(has_mem), "b": b.as_json(has_mem),
+             "stateRoot": t2.hx(sroot if beat_root is None else beat_root), "latchRoot": t2.hx(sroot),
+             "memRoot": t2.hx(mem_root), "oracle": store_note, "expect": expect, "case": case,
              "budgetUsed": budget._asdict()}
         e.update(wfields(w))
         e.update(extra)
@@ -428,6 +442,7 @@ def build_vectors() -> dict:
         assert not t2.verify_segment(store, nh2, t2.state_root(zero), a, b, w, budget)
         seg_case("message", bname, 1, a, b, t2.state_root(zero), w, False,
                  "stateRoot of the zero state written out (not EMPTY) and no state words", budget)
+    ram_vectors(steps, segs, vend, seg_case)
     v["segmentations"] = segs
     v["verifySegment"] = vseg
     v["verifyBeatEnd"] = vend
@@ -448,9 +463,212 @@ def build_vectors() -> dict:
     d = bisect_sim.run_scenarios()
     d.update(bisect_sim.checkpoint_position_scenarios())
     d.update(bisect_sim.wrong_index_scenarios())
+    d.update(bisect_sim.run_scenarios(("ram16", "rammix")))
     v["disputes"] = d
     v["measurements"] = measurements()
     return v
+
+
+# ---------------------------------------------------------------- files with RAM ports and ROM ports
+
+def mem_json(nl, mem) -> dict:
+    """Memory as {bank: [entries]} for every bank of the file (all entries, zero where never written)."""
+    return {str(bk): list((mem or {}).get(bk, [0] * (1 << a))) for bk, (a, _) in sorted(nl.banks.items())}
+
+
+def run_mem(nl, inputs):
+    """Per beat: (V, outputs, new state, new memory, events, state at the start, memory at the start)."""
+    state, mem, out = [0] * nl.n_latch, {}, []
+    for x in inputs:
+        V, outs, ns, nm, ev = t2.evaluate_full(nl, state, mem, x)
+        out.append((V, outs, ns, nm, ev, state, mem))
+        state, mem = ns, nm
+    return out
+
+
+def ext_split(w: t2.SegWitness):
+    """(witness bytes without the memory extension, the extension) of an encoded witness."""
+    enc = t2.serialize_seg_witness(w)
+    base = t2.serialize_seg_witness(t2.SegWitness(**{**w.__dict__, "mem_reads": [], "mem_writes": []}))
+    return base, enc[len(base):]
+
+
+def ram_mutations(nl, w, a, b, lr, mr):
+    """Negative cases for a RAM step: (case, b, witness (SegWitness or bytes), latchRoot, memRoot)."""
+    flip = lambda h: bytes([h[0] ^ 1]) + h[1:]  # noqa: E731
+    W = lambda **ch: t2.SegWitness(**{**w.__dict__, **ch})  # noqa: E731
+    out = []
+    if w.mem_reads:
+        word, sibs = w.mem_reads[0]
+        out.append(("RAM read: word tampered", b, W(mem_reads=[(flip(word), sibs)] + w.mem_reads[1:]), lr, mr))
+        nz = [h for h in range(t2.MEM_HEIGHT) if sibs[h] != t2.ZERO_H[h]]
+        if nz:
+            s2 = list(sibs)
+            s2[nz[0]] = flip(s2[nz[0]])
+            out.append(("RAM read: sibling tampered", b, W(mem_reads=[(word, s2)] + w.mem_reads[1:]), lr, mr))
+        out.append(("RAM read: proof missing", b, W(mem_reads=w.mem_reads[1:]), lr, mr))
+        out.append(("RAM read: extra proof left over", b, W(mem_reads=w.mem_reads + [w.mem_reads[0]]), lr, mr))
+        out.append(("wrong memRoot argument", b, w, lr, flip(mr)))
+        out.append(("memRoot ZERO_MEM although the memory is not zero (read proofs left over)", b, w, lr,
+                    t2.ZERO_MEM))
+        out.append(("combined stateRoot passed as latchRoot with memRoot ZERO_MEM", b, w,
+                    t2.combine_state(lr, mr), t2.ZERO_MEM))
+        base, ext = ext_split(w)
+        mask = int.from_bytes(ext[2 + 32:2 + 36], "big")
+        h = (mask & -mask).bit_length() - 1
+        cut = 2 + 36 + 32 * bin(~mask & ((1 << h) - 1)).count("1")
+        out.append(("encoding: a zero sibling not omitted", b,
+                    base + ext[:2 + 32] + (mask & ~(1 << h)).to_bytes(4, "big") + ext[2 + 36:cut] + t2.ZERO_H[h]
+                    + ext[cut:], lr, mr))
+        out.append(("encoding: zero-sibling mask bit 24 set", b,
+                    base + ext[:2 + 32] + (mask | 1 << 24).to_bytes(4, "big") + ext[2 + 36:], lr, mr))
+        out.append(("encoding: trailing byte after the memory extension", b, base + ext + b"\x00", lr, mr))
+    if w.mem_writes:
+        word, sibs = w.mem_writes[0]
+        out.append(("RAM write: old word tampered", b, W(mem_writes=[(flip(word), sibs)] + w.mem_writes[1:]),
+                    lr, mr))
+        out.append(("RAM write: proof dropped", b, W(mem_writes=w.mem_writes[1:]), lr, mr))
+        out.append(("claimed M wrong", b._replace(m=flip(b.m)), w, lr, mr))
+        if a.m != b.m:
+            out.append(("claimed M unchanged (write ignored)", b._replace(m=a.m), w, lr, mr))
+    if w.s_words:
+        out.append(("combined stateRoot passed as latchRoot", b, w, t2.combine_state(lr, mr), mr))
+    return out
+
+
+def ram_vectors(steps, segs, vend, seg_case):
+    """Vectors of the files with RAM ports (ram16, rammix) and with ROM ports (romports)."""
+    setups = (("ram16", examples.ram16_file(), examples.ram16_inputs(40, 5), 16),
+              ("rammix", examples.rammix_file(), examples.rammix_inputs(40, 6), 16))
+    for name, data, inputs, t_ctx in setups:
+        nl = t2.decode(data)
+        store, nh2 = oracle(data)
+        trace = run_mem(nl, inputs)
+        rows = []
+        for t, (V, outs, ns, nm, ev, st, mem) in enumerate(trace[:24]):
+            rows.append({"t": t, "inputs": bits(inputs[t]), "state": bits(st), "memory": mem_json(nl, mem),
+                         "outputs": bits(outs), "newState": bits(ns), "newMemory": mem_json(nl, nm),
+                         "latchRootNext": t2.hx(t2.state_root(ns)), "memRootNext": t2.hx(t2.mem_root(nl, nm)),
+                         "stateRootNext": t2.hx(t2.full_state_root(nl, ns, nm))})
+        steps[name] = rows
+
+        need = 2 if name == "rammix" else 1      # a beat in which write ports write (rammix: two of them)
+        t_ctx = next(t for t in range(t_ctx, len(trace)) if len(trace[t][4]) >= need)
+        V, outs, ns, nm, ev, st, mem = trace[t_ctx]
+        lr, mr = t2.state_root(st), t2.mem_root(nl, mem)
+        sr = t2.combine_state(lr, mr)
+        assert sr == t2.full_state_root(nl, st, mem)
+        segs[name] = {"context": {"label": f"beat {t_ctx} of the dispute-simulation inputs", "t": t_ctx,
+                                  "state": bits(st), "memory": mem_json(nl, mem), "inputs": bits(inputs[t_ctx]),
+                                  "stateRoot": t2.hx(sr), "latchRoot": t2.hx(lr), "memRoot": t2.hx(mr)}}
+        for bname, budget in (("default", t2.DEFAULT_BUDGET), ("tiny", t2.TINY_BUDGET)):
+            tuples = t2.segment_tuples(nl, V, budget, mem, ev)
+            read, flen = t2._file_reader(data), len(data)
+            costs = [t2.canonical_segment(read, flen, tp.byte_offset, tp.first_signal, tp.latch_ordinal, budget)
+                     for tp in tuples[:-1]]
+            segs[name][bname] = {
+                "segments": len(tuples) - 1,
+                "boundaries": [[tp.byte_offset, tp.first_signal, tp.latch_ordinal] for tp in tuples],
+                "tuples": [tp.as_json(True) for tp in tuples],
+                "tuplesRoot": t2.hx(t2.merkle_root([t2.seg_tuple_leaf(j, tp, True) for j, tp in enumerate(tuples)])),
+                "costs": [dict(c.cost.as_json(), stop=c.stop, records=len(c.records)) for c in costs],
+            }
+            neg_done = set()
+            for j in range(1, len(tuples)):
+                a, b = tuples[j - 1], tuples[j]
+                w = t2.build_seg_witness(nl, V, st, a, b.byte_offset, lr, mem, ev)
+                assert t2.verify_segment(store, nh2, lr, a, b, w, budget, mr), (name, bname, j)
+                note = f"honest ({len(w.mem_reads)} RAM read proofs, {len(w.mem_writes)} RAM write proofs)"
+                seg_case(name, bname, j, a, b, lr, w, True, note, budget, mem_root=mr, beat_root=sr, has_mem=True,
+                         chunksRead=t2.LAST_READ["chunks"])
+                key = (bool(w.mem_reads), bool(w.mem_writes))
+                if bname == "tiny" or len(tuples) == 2:
+                    if key in neg_done or key == (False, False):
+                        continue
+                    neg_done.add(key)
+                    for case, bb, ww, l_, m_ in ram_mutations(nl, w, a, b, lr, mr):
+                        assert not t2.verify_segment(store, nh2, l_, a, bb, ww, budget, m_), (name, bname, case)
+                        seg_case(name, bname, j, a, bb, l_, ww, False, case, budget, mem_root=m_, beat_root=sr,
+                                 has_mem=True)
+            assert neg_done, (name, bname)
+        # beat end: the lists cover the LATCHes; stateRoot_{t+1} = SHA-256(0x0C || state list root || seg_m.M)
+        seg_m = t2.segment_tuples(nl, V, t2.DEFAULT_BUDGET, mem, ev)[-1]
+        stl = t2.state_tuples(ns)
+        assert t2.combine_state(stl[-1].root, seg_m.m) == t2.full_state_root(nl, ns, nm)
+        segs[name]["beatEnd"] = {"segM": seg_m.as_json(True), "stateListRoot": t2.hx(stl[-1].root),
+                                 "stateRootNext": t2.hx(t2.combine_state(stl[-1].root, seg_m.m)),
+                                 "memRootNext": t2.hx(t2.mem_root(nl, nm))}
+        for kind, lst in (("out", t2.out_tuples(outs)), ("state", stl)):
+            segs[name][kind + "Tuples"] = [e.as_json() for e in lst]
+            for k in range(1, len(lst)):
+                w = (t2.build_out_witness(nl, V, outs, k - 1) if kind == "out"
+                     else t2.build_state_witness(nl, V, ns, k - 1))
+                a, b = lst[k - 1], lst[k]
+                assert t2.verify_beat_end(store, nh2, nl.n_out, seg_m, a, b, w)
+                e = {"example": name, "kind": kind, "k": k, "nOut": nl.n_out, "segM": seg_m.as_json(True),
+                     "a": a.as_json(), "b": b.as_json(), "oracle": "file", "expect": True, "case": "honest"}
+                e.update(wfields(w))
+                vend.append(e)
+                for case, bb, ww, sm, n_out in end_mutations(kind, a, b, w, seg_m, nl.n_out)[:3]:
+                    assert not t2.verify_beat_end(store, nh2, n_out, sm, a, bb, ww), (name, kind, case)
+                    e = {"example": name, "kind": kind, "k": k, "nOut": n_out, "segM": sm.as_json(True),
+                         "a": a.as_json(), "b": bb.as_json(), "oracle": "file", "expect": False, "case": case}
+                    e.update(wfields(ww))
+                    vend.append(e)
+
+    # beat 0 of ram16 with WE = 1: latchRoot EMPTY, memRoot ZERO_MEM, reads give 0 without proofs, writes prove
+    data = examples.ram16_file()
+    nl = t2.decode(data)
+    store, nh2 = oracle(data)
+    x = [1, 0, 1, 0, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0]       # RADDR 5, WADDR 6, WDATA 11, WE 1, MODE 0
+    V, outs, ns, nm, ev, st, mem = run_mem(nl, [x])[0]
+    assert ev
+    for bname, budget in (("default", t2.DEFAULT_BUDGET), ("tiny", t2.TINY_BUDGET)):
+        tuples = t2.segment_tuples(nl, V, budget, mem, ev)
+        for j in range(1, len(tuples)):
+            a, b = tuples[j - 1], tuples[j]
+            w = t2.build_seg_witness(nl, V, st, a, b.byte_offset, t2.EMPTY, mem, ev)
+            assert not w.mem_reads
+            if not w.mem_writes and bname == "tiny":
+                continue
+            assert t2.verify_segment(store, nh2, t2.EMPTY, a, b, w, budget, t2.ZERO_MEM)
+            ctx = {"state": "all zero (beat 0)", "memory": "all zero (beat 0)", "inputs": bits(x)}
+            seg_case("ram16", bname, j, a, b, t2.EMPTY, w, True,
+                     "beat 0: latchRoot EMPTY, memRoot ZERO_MEM: RAM reads give 0 without proofs", budget,
+                     beat_root=t2.EMPTY, has_mem=True, chunksRead=t2.LAST_READ["chunks"], context=ctx)
+            if w.mem_writes:
+                pos, _ = t2.mem_pos(3, 4, 4, 5)
+                w2 = t2.SegWitness(**{**w.__dict__, "mem_reads": [(bytes(32), t2.MemTree().proof(pos))]})
+                assert not t2.verify_segment(store, nh2, t2.EMPTY, a, b, w2, budget, t2.ZERO_MEM)
+                seg_case("ram16", bname, j, a, b, t2.EMPTY, w2, False,
+                         "beat 0: a RAM read proof given although memRoot is ZERO_MEM (left over)", budget,
+                         beat_root=t2.EMPTY, has_mem=True, context=ctx)
+                break
+
+    # romports: a file without MEM whose ROM ports read the data of an earlier ROM
+    data = examples.romports_file()
+    nl = t2.decode(data)
+    store, nh2 = oracle(data)
+    rows = []
+    for k in (0, 0x15, 0x2A, 0x3F):
+        xin = [(k >> i) & 1 for i in range(6)]
+        o, ns = t2.step(nl, [], xin)
+        rows.append({"inputs": bits(xin), "outputs": bits(o), "newState": bits(ns)})
+    steps["romports"] = rows
+    xin = [1, 0, 1, 1, 1, 0]
+    V, outs, ns = t2.evaluate(nl, [], xin)
+    for bname, budget in (("default", t2.DEFAULT_BUDGET), ("tiny", t2.TINY_BUDGET)):
+        tuples = t2.segment_tuples(nl, V, budget)
+        for j in range(1, len(tuples)):
+            a, b = tuples[j - 1], tuples[j]
+            w = t2.build_seg_witness(nl, V, [], a, b.byte_offset)
+            assert t2.verify_segment(store, nh2, t2.EMPTY, a, b, w, budget)
+            seg_case("romports", bname, j, a, b, t2.EMPTY, w, True, "honest (ROM ports)", budget,
+                     chunksRead=t2.LAST_READ["chunks"], context={"inputs": bits(xin)})
+            flip = lambda h: bytes([h[0] ^ 1]) + h[1:]  # noqa: E731
+            assert not t2.verify_segment(store, nh2, t2.EMPTY, a, b._replace(p=flip(b.p)), w, budget)
+            seg_case("romports", bname, j, a, b._replace(p=flip(b.p)), t2.EMPTY, w, False, "claimed P wrong",
+                     budget, context={"inputs": bits(xin)})
 
 
 def end_mutations(kind, a, b, w, seg_m, n_out):
@@ -476,6 +694,7 @@ def end_mutations(kind, a, b, w, seg_m, n_out):
 
 def measurements() -> dict:
     res = {"bounds": {"segmentWitness": t2.seg_witness_bound(t2.DEFAULT_BUDGET),
+                      "segmentWitnessMem": t2.seg_witness_bound_ram(t2.DEFAULT_BUDGET),
                       "beatEndWitness": t2.end_witness_bound(), "witnessCap": t2.WITNESS_CAP}}
     for name, fn, budget in (("large", examples.large_file, t2.DEFAULT_BUDGET),
                              ("nandOnly21000", examples.nand_only_file, t2.DEFAULT_BUDGET)):

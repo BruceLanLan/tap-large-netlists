@@ -4,17 +4,19 @@ MIT License. Pure Python 3.9+, standard library only. Follows TAPs/TAP-draft-lar
 numbers below refer to it).
 
 Contents:
-  1  tapnet/2 files: encode, decode, check (ROM record 0x10), metrics            (spec section 1)
-  2  one-beat evaluation (with ROM), canonical ROM expansion to tapnet/1         (1.3)
+  1  tapnet/2 files: encode, decode, check (ROM 0x10, RAM ports 0x11 / 0x12, ROM port 0x13,
+     flags byte), metrics                                                       (spec section 1)
+  2  one-beat evaluation (with ROM and memory), canonical ROM expansion to tapnet/1  (1.3)
   3  Merkle trees and proofs (0), multiproofs, chunking, netlistHash2            (0, 2.1)
   3b the optional on-chain store ITapLargeNetlistStore, which is also the chunk oracle (3, 6)
   4  prefix commitments (signal words 0x04, state words 0x05, latch d-table words 0x09),
      right-frontier append proofs, output chain 0x08, input leaves 0x0A         (4)
+  4b the memory tree (word leaves 0x0B) and the state root of MEM files (0x0C)  (4.6)
   5  budgets and canonical greedy segmentation                                   (5)
   6  segment witnesses and verify_segment (reads the file only through the chunk oracle)  (6.1)
   7  beat-end segments (outputs, new state) and their verifier                  (6.2)
   8  checkpoints (0x06), tuple leaves (0x07)                                      (4.5, 7)
-  9  witness encoding and parsing, and witness size bounds (6.3)
+  9  witness encoding and parsing (with the memory extension), and witness size bounds (6.3)
 """
 from __future__ import annotations
 
@@ -28,6 +30,12 @@ MAGIC = b"TAPNET"
 HEADER_LEN = 16
 VERSION1, VERSION2 = 0x01, 0x02
 OP_NAND, OP_LATCH, OP_REF, OP_ROM = 0x00, 0x01, 0x02, 0x10
+OP_RAMR, OP_RAMW, OP_ROMP = 0x11, 0x12, 0x13     # RAM read port, RAM write port, ROM read port (1.1)
+FLAG_MEM = 0x01                                  # flags byte (header byte 7), bit 0: the file has RAM ports
+RAM_MAX_BANK_BITS = 1 << 24                      # 2^a * stride(w) <= 2^24 bits per bank (2^16 words)
+MEM_BANK_BITS, MEM_WORD_BITS = 8, 16             # memory tree position = bank << 16 | word
+MEM_HEIGHT = MEM_BANK_BITS + MEM_WORD_BITS       # 24
+MEM_WEIGHT = 4                                   # extWords charged per memory access (read or write proof)
 MAX_FILE = 64 << 20            # 64 MiB
 MAX_SIGNALS = 1 << 24          # TAP-02
 MAX_PINS = 1 << 16             # TAP-02
@@ -46,6 +54,8 @@ DOM_TUPLE = 0x07
 DOM_IO = 0x08                  # output hash chain
 DOM_LATCHD = 0x09              # latch d-reference table words
 DOM_INPUT = 0x0A               # per-beat input leaves
+DOM_MEMWORD = 0x0B             # memory word leaf: SHA-256(0x0B || word), no index (4.6)
+DOM_STATE2 = 0x0C              # state root of a MEM file: SHA-256(0x0C || latchRoot || memRoot)
 
 EMPTY = b"\x00" * 32           # commitment of an empty prefix; as a stateRoot: the all-zero state
 
@@ -90,6 +100,28 @@ def rom_data_len(a: int, w: int) -> int:
     return ((1 << a) * w + 7) // 8
 
 
+def ram_stride(w: int) -> int:
+    """Bits per RAM entry in the bank's bit vector: w rounded up to a power of two (so an entry never straddles
+    a 256-bit word)."""
+    s = 1
+    while s < w:
+        s <<= 1
+    return s
+
+
+def enc_ramr(bank: int, addr: Sequence[int], w: int) -> bytes:
+    return bytes([OP_RAMR, bank, len(addr)]) + u16(w) + b"".join(u24(x) for x in addr)
+
+
+def enc_ramw(bank: int, addr: Sequence[int], wdata: Sequence[int], we: int) -> bytes:
+    return (bytes([OP_RAMW, bank, len(addr)]) + u16(len(wdata)) + u24(we) + b"".join(u24(x) for x in addr)
+            + b"".join(u24(x) for x in wdata))
+
+
+def enc_romp(target: int, addr: Sequence[int], w: int) -> bytes:
+    return bytes([OP_ROMP]) + u32(target) + bytes([len(addr)]) + u16(w) + b"".join(u24(x) for x in addr)
+
+
 def enc_nand(x: int, y: int) -> bytes:
     return bytes([OP_NAND]) + u24(x) + u24(y)
 
@@ -123,9 +155,10 @@ def enc_rom(addr: Sequence[int], w: int, data: bytes) -> bytes:
     return bytes([OP_ROM, a]) + u16(w) + b"".join(u24(s) for s in addr) + data
 
 
-def make_file(records: bytes, n_in: int, n_out: int, version: int = VERSION2) -> bytes:
-    """Wrap record bytes in a header without checking (use check_file to validate)."""
-    return MAGIC + bytes([version, 0]) + u32(n_in) + u32(n_out) + records
+def make_file(records: bytes, n_in: int, n_out: int, version: int = VERSION2, flags: int = 0) -> bytes:
+    """Wrap record bytes in a header without checking (use check_file to validate). flags = FLAG_MEM for a
+    file with RAM ports (spec 1.1)."""
+    return MAGIC + bytes([version, flags]) + u32(n_in) + u32(n_out) + records
 
 
 class RawRecord(NamedTuple):
@@ -138,11 +171,14 @@ class RawRecord(NamedTuple):
     dl: int         # ROM data length; else 0
     end: int        # offset of the next record
     n_out: int
+    bank: int = 0   # RAM ports: bank number
+    target: int = 0 # ROM port: offset of the ROM record it reads
 
     @property
     def struct_end(self) -> int:
-        """End of the bytes a verifier must read: the whole record, or a ROM's header and references."""
-        return self.ds
+        """End of the bytes a verifier must read: the whole record, or a ROM's header and references.
+        (A ROM port's ds points at its target ROM's data; its structural bytes are the whole port record.)"""
+        return self.ds if self.op in (OP_NAND, OP_LATCH, OP_ROM) else self.end
 
 
 def parse_record(read: Callable[[int, int], bytes], off: int, file_len: int) -> RawRecord:
@@ -181,6 +217,30 @@ def parse_record(read: Callable[[int, int], bytes], off: int, file_len: int) -> 
         b = read(off + 4, 3 * a)
         refs = tuple(int.from_bytes(b[3 * i:3 * i + 3], "big") for i in range(a))
         return RawRecord(op, off, refs, a, w, ds, dl, end, w)
+    if op in (OP_RAMR, OP_RAMW, OP_ROMP):
+        hl = {OP_RAMR: 5, OP_RAMW: 5, OP_ROMP: 8}[op]
+        if off + hl > file_len:
+            raise Invalid(f"truncated port header at byte {off}")
+        h = read(off + 1, hl - 1)
+        if op == OP_ROMP:
+            tgt, a, w = int.from_bytes(h[0:4], "big"), h[4], int.from_bytes(h[5:7], "big")
+            bank = 0
+        else:
+            bank, a, w, tgt = h[0], h[1], int.from_bytes(h[2:4], "big"), 0
+        if not ROM_MIN_A <= a <= ROM_MAX_A or not ROM_MIN_W <= w <= ROM_MAX_W:
+            raise Invalid(f"port dimensions out of range at byte {off}")
+        if op != OP_ROMP and (1 << a) * ram_stride(w) > RAM_MAX_BANK_BITS:
+            raise Invalid(f"RAM bank larger than 2^24 bits at byte {off}")
+        nrefs = a if op != OP_RAMW else 1 + a + w
+        end = off + hl + 3 * nrefs
+        if end > file_len:
+            raise Invalid(f"truncated port record at byte {off}")
+        b = read(off + hl, 3 * nrefs)
+        refs = tuple(int.from_bytes(b[3 * i:3 * i + 3], "big") for i in range(nrefs))
+        if op == OP_ROMP:
+            ds = tgt + 4 + 3 * a          # data of the target ROM (validity: an earlier ROM with the same a, w)
+            return RawRecord(op, off, refs, a, w, ds, rom_data_len(a, w), end, w, 0, tgt)
+        return RawRecord(op, off, refs, a, w, end, 0, end, w if op == OP_RAMR else 0, bank, 0)
     if op == OP_REF:
         raise Invalid(f"REF record (opcode 0x02) at byte {off} is not allowed in tapnet/2")
     raise Invalid(f"unknown opcode 0x{op:02x} at byte {off}")
@@ -205,15 +265,28 @@ class Netlist:
     nand: int = 0
     rom_records: int = 0
     rom_bits: int = 0
+    flags: int = 0
+    banks: Dict[int, Tuple[int, int]] = field(default_factory=dict)   # bank -> (a, w)
+    ram_reads: int = 0
+    ram_writes: int = 0
+    rom_ports: int = 0
 
     @property
     def n_latch(self) -> int:
         return len(self.latch_d)
 
+    @property
+    def has_mem(self) -> bool:
+        return bool(self.flags & FLAG_MEM)
+
     def metrics(self) -> dict:
-        return {"nIn": self.n_in, "nOut": self.n_out, "nand": self.nand, "latch": self.n_latch,
-                "romBits": self.rom_bits, "romRecords": self.rom_records, "signals": self.n_signals,
-                "bytes": len(self.data)}
+        m = {"nIn": self.n_in, "nOut": self.n_out, "nand": self.nand, "latch": self.n_latch,
+             "romBits": self.rom_bits, "romRecords": self.rom_records, "signals": self.n_signals,
+             "bytes": len(self.data)}
+        if self.has_mem or self.rom_ports:
+            m.update({"ramBanks": len(self.banks), "ramBits": sum((1 << a) * w for a, w in self.banks.values()),
+                      "ramReadPorts": self.ram_reads, "ramWritePorts": self.ram_writes, "romPorts": self.rom_ports})
+        return m
 
 
 def decode(data: bytes, versions: Tuple[int, ...] = (VERSION2,)) -> Netlist:
@@ -231,8 +304,9 @@ def decode(data: bytes, versions: Tuple[int, ...] = (VERSION2,)) -> Netlist:
     version = data[6]
     if version not in versions:
         raise Invalid(f"unsupported version {version}")
-    if data[7] != 0:
-        raise Invalid("reserved byte is not zero")
+    flags = data[7]
+    if flags & ~FLAG_MEM or (flags and version != VERSION2):
+        raise Invalid("flags byte: unknown flag bits")
     n_in = int.from_bytes(data[8:12], "big")
     n_out = int.from_bytes(data[12:16], "big")
     if n_in > MAX_PINS:
@@ -248,10 +322,24 @@ def decode(data: bytes, versions: Tuple[int, ...] = (VERSION2,)) -> Netlist:
     flen = len(data)
     off, nxt, records, latch_d = HEADER_LEN, 2 + n_in, [], []
     nand = rom_records = rom_bits = 0
+    banks: Dict[int, Tuple[int, int]] = {}
+    roms: Dict[int, Tuple[int, int]] = {}
+    nr = nw = npo = 0
     while off < flen:
         raw = parse_record(read, off, flen)
-        if raw.op == OP_ROM and version == VERSION1:
-            raise Invalid("ROM record is not allowed in tapnet/1")
+        if raw.op in (OP_ROM, OP_RAMR, OP_RAMW, OP_ROMP) and version == VERSION1:
+            raise Invalid("ROM and port records are not allowed in tapnet/1")
+        if raw.op in (OP_RAMR, OP_RAMW):
+            if banks.setdefault(raw.bank, (raw.a, raw.w)) != (raw.a, raw.w):
+                raise Invalid(f"RAM port at byte {off} disagrees with the dimensions of bank {raw.bank}")
+            nr += raw.op == OP_RAMR
+            nw += raw.op == OP_RAMW
+        if raw.op == OP_ROMP:
+            if roms.get(raw.target) != (raw.a, raw.w):
+                raise Invalid(f"ROM port at byte {off} does not name an earlier ROM with the same a, w")
+            npo += 1
+        if raw.op == OP_ROM:
+            roms[off] = (raw.a, raw.w)
         if nxt + raw.n_out > MAX_SIGNALS:
             raise Invalid("more than 2^24 signals")
         if raw.op != OP_LATCH:
@@ -276,7 +364,12 @@ def decode(data: bytes, versions: Tuple[int, ...] = (VERSION2,)) -> Netlist:
             raise Invalid(f"LATCH references signal {d}, beyond the last signal")
     if nxt - 2 - n_in < n_out:
         raise Invalid("too few signals for outputs")
-    return Netlist(data, version, n_in, n_out, records, nxt, latch_d, nand, rom_records, rom_bits)
+    if flags and not banks:
+        raise Invalid("flags byte: MEM flag set, but the file has no RAM ports")
+    if banks and not flags:
+        raise Invalid("flags byte: a file with RAM ports must set the MEM flag")
+    return Netlist(data, version, n_in, n_out, records, nxt, latch_d, nand, rom_records, rom_bits,
+                   flags, banks, nr, nw, npo)
 
 
 def check_file(data: bytes) -> dict:
@@ -296,8 +389,12 @@ def evaluate(f, state: Sequence[int], inputs: Sequence[int],
 
     `f` is a decoded Netlist or the file bytes (decoded on every call; see step()).
 
-    flip_signals / flip_state inject faults (used only by the dispute simulation's cheaters)."""
+    flip_signals / flip_state inject faults (used only by the dispute simulation's cheaters).
+    For a file with RAM ports use evaluate_full (this assumes all-zero memory and drops the new memory)."""
     nl = _as_netlist(f)
+    if nl.has_mem or nl.rom_ports:
+        V, outs, ns, _, _ = evaluate_full(nl, state, None, inputs, flip_signals, flip_state)
+        return V, outs, ns
     if len(state) != nl.n_latch or len(inputs) != nl.n_in:
         raise ValueError("state or input length does not match the netlist")
     if any(b not in (0, 1) for b in state) or any(b not in (0, 1) for b in inputs):
@@ -331,6 +428,79 @@ def evaluate(f, state: Sequence[int], inputs: Sequence[int],
     for l in flip_state:
         new_state[l] ^= 1
     return V, V[len(V) - nl.n_out:], new_state
+
+
+Mem = Dict[int, List[int]]          # bank -> its 2^a entries (ints of w bits); a missing bank is all zero
+
+
+def mem_copy(mem: Optional[Mem]) -> Mem:
+    return {b: list(v) for b, v in (mem or {}).items()}
+
+
+def mem_get(nl: Netlist, mem: Optional[Mem], bank: int, addr: int) -> int:
+    v = (mem or {}).get(bank)
+    return v[addr] if v is not None else 0
+
+
+def evaluate_full(f, state: Sequence[int], mem: Optional[Mem], inputs: Sequence[int],
+                  flip_signals=frozenset(), flip_state=frozenset(), flip_mem=frozenset()):
+    """One beat of a file that may have RAM ports (spec 1.3). Returns
+    (V, outputs, new_state, new_mem, events): RAM read ports see `mem` (the memory at the start of the beat);
+    write ports are applied in file order to a copy, which becomes new_mem. events lists every applied
+    memory change as (record offset, bank, addr, new entry), in file order (used to build the per-segment
+    memory roots M). flip_mem = {(bank, addr, bit)}: a cheater flips that bit of the entry right after the
+    first write port of `bank` in this beat (whether or not it wrote), and records it as an event there."""
+    nl = _as_netlist(f)
+    if len(state) != nl.n_latch or len(inputs) != nl.n_in:
+        raise ValueError("state or input length does not match the netlist")
+    V = [0, 1] + list(inputs)
+    data = nl.data
+    new_mem = mem_copy(mem)
+    events = []
+    flipped = set()
+
+    def push(v):
+        if flip_signals and len(V) in flip_signals:
+            v ^= 1
+        V.append(v)
+
+    for rec in nl.records:
+        raw = rec.raw
+        if raw.op == OP_NAND:
+            push(1 - (V[raw.refs[0]] & V[raw.refs[1]]))
+        elif raw.op == OP_LATCH:
+            push(state[rec.latch_ord])
+        elif raw.op in (OP_ROM, OP_ROMP):
+            addr = 0
+            for i, r in enumerate(raw.refs):
+                addr |= V[r] << i
+            base = addr * raw.w
+            for j in range(raw.w):
+                bit = base + j
+                push((data[raw.ds + (bit >> 3)] >> (bit & 7)) & 1)
+        elif raw.op == OP_RAMR:
+            addr = sum(V[r] << i for i, r in enumerate(raw.refs))
+            e = mem_get(nl, mem, raw.bank, addr)
+            for j in range(raw.w):
+                push((e >> j) & 1)
+        else:  # OP_RAMW
+            we = V[raw.refs[0]]
+            addr = sum(V[r] << i for i, r in enumerate(raw.refs[1:1 + raw.a]))
+            wd = sum(V[r] << j for j, r in enumerate(raw.refs[1 + raw.a:]))
+            bank = new_mem.setdefault(raw.bank, [0] * (1 << raw.a))
+            if we:
+                bank[addr] = wd
+                events.append((raw.off, raw.bank, addr, wd))
+            if raw.bank not in flipped:
+                flipped.add(raw.bank)
+                for (b, k, i) in flip_mem:
+                    if b == raw.bank:
+                        bank[k] ^= 1 << i
+                        events.append((raw.off, b, k, bank[k]))
+    new_state = [V[d] for d in nl.latch_d]
+    for l in flip_state:
+        new_state[l] ^= 1
+    return V, V[len(V) - nl.n_out:], new_state, new_mem, events
 
 
 def step(f, state_bits: Sequence[int], input_bits: Sequence[int]) -> Tuple[List[int], List[int]]:
@@ -371,6 +541,8 @@ def expand_rom_to_tapnet1(f) -> bytes:
         nxt += 1
         return nxt - 1
 
+    if nl.has_mem:
+        raise Invalid("a file with RAM ports has no tapnet/1 expansion")
     for rec in nl.records:
         raw = rec.raw
         if raw.op == OP_NAND:
@@ -832,6 +1004,129 @@ def unpack_inputs(n_in: int, packed: bytes) -> List[int]:
     return unpack_bits(packed, n_in)
 
 
+# ---------------------------------------------------------------- 4b memory tree (spec 4.6)
+#
+# All RAM banks live in one perfect binary tree of height 24 (MEM_HEIGHT). Bank b, entry k (w bits, stride
+# s = ram_stride(w)) occupies bits slot .. slot + w - 1 of word j, where bit = k * s, j = bit >> 8 and
+# slot = bit & 255 (bit o of a word is bit o mod 8 of byte o / 8, as for bit words). Word j of bank b is leaf
+# (b << 16) | j. A leaf is SHA-256(0x0B || word) (no index: its position is fixed by the path), nodes are
+# SHA-256(0x01 || l || r). An all-zero subtree of height h has the constant hash ZERO_H[h]; the all-zero
+# memory has root ZERO_MEM = ZERO_H[24], whatever the file.
+
+ZERO_WORD = bytes(32)
+
+
+def mem_leaf(word: bytes) -> bytes:
+    return sha256(bytes([DOM_MEMWORD]) + word)
+
+
+ZERO_H = [mem_leaf(ZERO_WORD)]
+for _h in range(MEM_HEIGHT):
+    ZERO_H.append(node_hash(ZERO_H[-1], ZERO_H[-1]))
+ZERO_MEM = ZERO_H[MEM_HEIGHT]
+
+
+def mem_pos(bank: int, a: int, w: int, addr: int) -> Tuple[int, int]:
+    """(leaf position, slot) of entry addr of a bank with dimensions (a, w)."""
+    bit = addr * ram_stride(w)
+    return (bank << MEM_WORD_BITS) | (bit >> 8), bit & 255
+
+
+def word_entry(word: bytes, slot: int, w: int) -> int:
+    return sum(((word[(slot + j) >> 3] >> ((slot + j) & 7)) & 1) << j for j in range(w))
+
+
+def word_patch(word: bytes, slot: int, w: int, value: int) -> bytes:
+    b = bytearray(word)
+    for j in range(w):
+        o = slot + j
+        if (value >> j) & 1:
+            b[o >> 3] |= 1 << (o & 7)
+        else:
+            b[o >> 3] &= ~(1 << (o & 7)) & 0xFF
+    return bytes(b)
+
+
+def mem_path_root(word: bytes, pos: int, sibs: Sequence[bytes]) -> bytes:
+    """Root of the memory tree from a leaf word at pos and its 24 siblings (leaf level first)."""
+    if len(sibs) != MEM_HEIGHT or not 0 <= pos < 1 << MEM_HEIGHT:
+        raise Missing("malformed memory proof")
+    h = mem_leaf(word)
+    for l in range(MEM_HEIGHT):
+        h = node_hash(h, sibs[l]) if (pos >> l) & 1 == 0 else node_hash(sibs[l], h)
+    return h
+
+
+class MemTree:
+    """Sparse model of the memory tree: only nodes that differ from the all-zero tree are stored."""
+
+    def __init__(self):
+        self.nodes: List[Dict[int, bytes]] = [dict() for _ in range(MEM_HEIGHT + 1)]
+        self.words: Dict[int, bytes] = {}
+
+    def node(self, lvl: int, i: int) -> bytes:
+        return self.nodes[lvl].get(i, ZERO_H[lvl])
+
+    def root(self) -> bytes:
+        return self.node(MEM_HEIGHT, 0)
+
+    def word(self, pos: int) -> bytes:
+        return self.words.get(pos, ZERO_WORD)
+
+    def proof(self, pos: int) -> List[bytes]:
+        return [self.node(l, (pos >> l) ^ 1) for l in range(MEM_HEIGHT)]
+
+    def set_word(self, pos: int, word: bytes) -> None:
+        self.words[pos] = word
+        h, i = mem_leaf(word), pos
+        self.nodes[0][i] = h
+        for l in range(MEM_HEIGHT):
+            sib = self.node(l, i ^ 1)
+            h = node_hash(h, sib) if i % 2 == 0 else node_hash(sib, h)
+            i >>= 1
+            self.nodes[l + 1][i] = h
+
+    def set_entry(self, bank: int, a: int, w: int, addr: int, value: int) -> None:
+        pos, slot = mem_pos(bank, a, w, addr)
+        self.set_word(pos, word_patch(self.word(pos), slot, w, value))
+
+    def copy(self) -> "MemTree":
+        t = MemTree()
+        t.nodes = [dict(d) for d in self.nodes]
+        t.words = dict(self.words)
+        return t
+
+    @classmethod
+    def from_mem(cls, nl: Netlist, mem: Optional[Mem]) -> "MemTree":
+        t = cls()
+        for bank, entries in sorted((mem or {}).items()):
+            a, w = nl.banks[bank]
+            for k, v in enumerate(entries):
+                if v:
+                    t.set_entry(bank, a, w, k, v)
+        return t
+
+
+def mem_root(nl: Netlist, mem: Optional[Mem]) -> bytes:
+    return MemTree.from_mem(nl, mem).root()
+
+
+def combine_state(latch_root: bytes, memory_root: bytes) -> bytes:
+    """stateRoot of a file with the MEM flag after beat 0: SHA-256(0x0C || latchRoot || memRoot)."""
+    return sha256(bytes([DOM_STATE2]) + latch_root + memory_root)
+
+
+def full_state_root(nl: Netlist, state: Sequence[int], mem: Optional[Mem]) -> bytes:
+    """stateRoot of a beat t >= 1 (beat 0 is always EMPTY): the latch prefix root, combined with the memory
+    root for a file with the MEM flag."""
+    lr = state_root(state)
+    return combine_state(lr, mem_root(nl, mem)) if nl.has_mem else lr
+
+
+def full_state_roots(nl: Netlist, states: Sequence[Sequence[int]], mems: Sequence[Optional[Mem]]) -> List[bytes]:
+    return [EMPTY] + [full_state_root(nl, s, m) for s, m in zip(states[1:], mems[1:])]
+
+
 # ---------------------------------------------------------------- 5 budgets and canonical segmentation
 
 class Budget(NamedTuple):
@@ -847,15 +1142,19 @@ TINY_BUDGET = Budget(16, 4, 2)
 
 
 class SegTuple(NamedTuple):
-    """seg_j = (byteOffset, firstSignal, latchOrdinal, P, D), spec 4.5."""
+    """seg_j = (byteOffset, firstSignal, latchOrdinal, P, D, M), spec 4.5: M is the memory root after the write
+    ports before this boundary (ZERO_MEM in every tuple of a file without MEM, and then not hashed)."""
     byte_offset: int
     first_signal: int
     latch_ordinal: int
     p: bytes
     d: bytes
+    m: bytes = ZERO_MEM
 
-    def as_json(self) -> list:
-        return [self.byte_offset, self.first_signal, self.latch_ordinal, hx(self.p), hx(self.d)]
+    def as_json(self, has_mem: bool = False) -> list:
+        """5 elements for a file without MEM, 6 (with M) for a file with MEM, whatever the value of M."""
+        base = [self.byte_offset, self.first_signal, self.latch_ordinal, hx(self.p), hx(self.d)]
+        return base + [hx(self.m)] if has_mem else base
 
 
 def chunk_set(start: int, end: int) -> set:
@@ -882,17 +1181,28 @@ class SegCost:
 
 def record_ext_words(raw: RawRecord, first_signal: int, latch_ord: int) -> set:
     """External reads of a record in a segment starting at first_signal. Constants 0/1 are not reads
-    (spec 5.2); signals >= first_signal are internal; a LATCH reads its state word."""
+    (spec 5.2); signals >= first_signal are internal; a LATCH reads its state word. A RAM read or
+    write port adds MEM_WEIGHT units ("M", offset, i), never shared with other records."""
     if raw.op == OP_LATCH:
         return {("S", latch_ord >> 8)}
-    return {("P", r >> 8) for r in raw.refs if 2 <= r < first_signal}
+    ext = {("P", r >> 8) for r in raw.refs if 2 <= r < first_signal}
+    if raw.op in (OP_RAMR, OP_RAMW):
+        ext |= {("M", raw.off, i) for i in range(MEM_WEIGHT)}
+    return ext
+
+
+def record_gates(raw: RawRecord) -> int:
+    """Gate-equivalents: NAND, LATCH 1; ROM and ROM port w + a; RAM read port w + a; RAM write port 1 + a + w."""
+    if raw.op in (OP_NAND, OP_LATCH):
+        return 1
+    return raw.w + raw.a + (raw.op == OP_RAMW)
 
 
 def seg_cost_add(cost: SegCost, raw: RawRecord, first_signal: int, latch_ord: int) -> SegCost:
     """Static (value-independent) cost. Chunks: distinct chunks of all structural bytes, plus, per ROM,
     min(chunks its data region touches, 2) (spec 5.2: not deduplicated; an upper bound on the chunks read)."""
-    g = 1 if raw.op != OP_ROM else raw.w + raw.a
-    rom = min(len(chunk_set(raw.ds, raw.end)), 2) if raw.op == OP_ROM else 0
+    g = record_gates(raw)
+    rom = min(len(chunk_set(raw.ds, raw.ds + raw.dl)), 2) if raw.op in (OP_ROM, OP_ROMP) else 0
     return SegCost(cost.gates + g, cost.ext | record_ext_words(raw, first_signal, latch_ord),
                    cost.struct_chunks | chunk_set(raw.off, raw.struct_end), cost.rom_chunks + rom)
 
@@ -946,25 +1256,40 @@ def segment_boundaries(f, budget: Budget = DEFAULT_BUDGET) -> List[Tuple[int, in
     return greedy_boundaries(nl, (HEADER_LEN, 2 + nl.n_in, 0), budget)
 
 
-def initial_tuple(n_in: int, inputs: Sequence[int]) -> SegTuple:
-    """seg_0 = (16, 2 + nIn, 0, P(2 + nIn), D = EMPTY)."""
-    return SegTuple(HEADER_LEN, 2 + n_in, 0, prefix_root(DOM_SIGNAL, [0, 1] + list(inputs), 2 + n_in), EMPTY)
+def initial_tuple(n_in: int, inputs: Sequence[int], m: bytes = ZERO_MEM) -> SegTuple:
+    """seg_0 = (16, 2 + nIn, 0, P(2 + nIn), D = EMPTY, M = memRoot_t of the beat; ZERO_MEM without MEM)."""
+    return SegTuple(HEADER_LEN, 2 + n_in, 0, prefix_root(DOM_SIGNAL, [0, 1] + list(inputs), 2 + n_in), EMPTY, m)
 
 
-def tuples_for_boundaries(nl: Netlist, V: Sequence[int], bounds) -> List[SegTuple]:
+def tuples_for_boundaries(nl: Netlist, V: Sequence[int], bounds, mem_t: Optional[Mem] = None,
+                          events: Sequence[tuple] = ()) -> List[SegTuple]:
+    """Segment tuples at the given boundaries. For a MEM file, M at each boundary is the root of mem_t with the
+    events (from evaluate_full, possibly a cheater's) of the records before that boundary applied."""
     accp, accd, out = Acc(DOM_SIGNAL, KIND_BITS), Acc(DOM_LATCHD, KIND_U32), []
+    tree = MemTree.from_mem(nl, mem_t) if nl.has_mem else None
+    ev = sorted(events, key=lambda e: e[0])   # stable: keeps file order within one record
+    ei = 0
     for off, sig, lat in bounds:
         while accp.count < sig:
             accp.append(V[accp.count])
         while accd.count < lat:
             accd.append(nl.latch_d[accd.count])
-        out.append(SegTuple(off, sig, lat, accp.root(), accd.root()))
+        m = ZERO_MEM
+        if tree is not None:
+            while ei < len(ev) and ev[ei][0] < off:
+                _, bank, addr, val = ev[ei]
+                a, w = nl.banks[bank]
+                tree.set_entry(bank, a, w, addr, val)
+                ei += 1
+            m = tree.root()
+        out.append(SegTuple(off, sig, lat, accp.root(), accd.root(), m))
     return out
 
 
-def segment_tuples(f, V: Sequence[int], budget: Budget = DEFAULT_BUDGET) -> List[SegTuple]:
+def segment_tuples(f, V: Sequence[int], budget: Budget = DEFAULT_BUDGET, mem_t: Optional[Mem] = None,
+                   events: Sequence[tuple] = ()) -> List[SegTuple]:
     nl = _as_netlist(f)
-    return tuples_for_boundaries(nl, V, segment_boundaries(nl, budget))
+    return tuples_for_boundaries(nl, V, segment_boundaries(nl, budget), mem_t, events)
 
 
 # ---------------------------------------------------------------- 6 segment witnesses and verify_segment
@@ -982,6 +1307,9 @@ class SegWitness:
     s_size: int                 # number of state words; bound by no tuple (spec Rationale); 0 if stateRoot = EMPTY
     s_words: Dict[int, bytes]
     s_proof: List[bytes]
+    # memory proofs (spec 6.1; both empty for a segment without RAM accesses: then there is no extension)
+    mem_reads: List[Tuple[bytes, List[bytes]]] = field(default_factory=list)    # (word, 24 siblings) per read
+    mem_writes: List[Tuple[bytes, List[bytes]]] = field(default_factory=list)   # (old word, 24 siblings) per write
 
 
 LAST_READ = {"chunks": 0}       # distinct chunks the last verifier call read from the oracle (measurements)
@@ -1039,7 +1367,7 @@ def segment_chunks(f, V: Sequence[int], a: SegTuple, end_off: int) -> set:
     while o < end_off:
         raw = parse_record(read, o, flen)
         need |= chunk_set(raw.off, raw.struct_end)
-        if raw.op == OP_ROM:
+        if raw.op in (OP_ROM, OP_ROMP):
             need |= chunk_set(*_rom_addressed_range(raw, sum(V[r] << i for i, r in enumerate(raw.refs))))
         o = raw.end
     if o < flen:
@@ -1049,11 +1377,14 @@ def segment_chunks(f, V: Sequence[int], a: SegTuple, end_off: int) -> set:
 
 
 def build_seg_witness(f, V: Sequence[int], state: Sequence[int], a: SegTuple, end_off: int,
-                      sroot: Optional[bytes] = None) -> SegWitness:
+                      sroot: Optional[bytes] = None, mem_t: Optional[Mem] = None,
+                      events: Sequence[tuple] = ()) -> SegWitness:
     """Witness for the segment from tuple a to the record boundary end_off, built from the prover's own
-    signal values V (a cheater's V gives a witness that fails). sroot is the beat's agreed stateRoot
-    (default: state_root(state)); for sroot = EMPTY (the initial all-zero state, spec 4.3) the witness has
-    no state words."""
+    signal values V (a cheater's V gives a witness that fails). sroot is the beat's agreed latch root, the
+    latchRoot argument of verify_segment (default: state_root(state)); for sroot = EMPTY (the initial all-zero
+    state, spec 4.3) the witness has no state words. For a file with MEM, mem_t is the memory at the start of
+    the beat and events the memory changes of the beat (from evaluate_full); the witness then carries one
+    memory proof per RAM read (none if memRoot_t = ZERO_MEM) and one per applied write."""
     nl = _as_netlist(f)
     data, flen = nl.data, len(nl.data)
     read = _file_reader(data)
@@ -1090,7 +1421,43 @@ def build_seg_witness(f, V: Sequence[int], state: Sequence[int], a: SegTuple, en
             lv = merkle_levels([word_leaf(DOM_STATE, k, w) for k, w in enumerate(swords)])
             s_words = {k: swords[k] for k in sorted(s_idx)}
             s_proof = multiproof(lv, sorted(s_idx))
-    return SegWitness(p_peaks, p_partial, p_words, p_proof, d_peaks, d_partial, s_size, s_words, s_proof)
+    w = SegWitness(p_peaks, p_partial, p_words, p_proof, d_peaks, d_partial, s_size, s_words, s_proof)
+    if nl.has_mem:
+        _add_mem_witness(nl, w, V, state, a, end_off, sroot, mem_t, events)
+    return w
+
+
+def _add_mem_witness(nl: Netlist, w: SegWitness, V, state, a: SegTuple, end_off: int, sroot: bytes,
+                     mem_t: Optional[Mem], events: Sequence[tuple]) -> None:
+    """Memory proofs (spec 6.1): one per RAM read against memRoot_t, unless memRoot_t = ZERO_MEM, and one per
+    applied write against the running root, which starts at a.M."""
+    read = _file_reader(nl.data)
+    tree_t = MemTree.from_mem(nl, mem_t)
+    zero_mem = tree_t.root() == ZERO_MEM
+    ev = sorted(events, key=lambda e: e[0])
+    running = tree_t.copy()
+
+    def apply(pred):
+        for off, bank, addr, val in ev:
+            if pred(off):
+                an, wn = nl.banks[bank]
+                running.set_entry(bank, an, wn, addr, val)
+
+    apply(lambda off: off < a.byte_offset)
+    o = a.byte_offset
+    while o < end_off:
+        raw = parse_record(read, o, len(nl.data))
+        if raw.op == OP_RAMR and not zero_mem:
+            addr = sum(V[r] << i for i, r in enumerate(raw.refs))
+            pos, _ = mem_pos(raw.bank, raw.a, raw.w, addr)
+            w.mem_reads.append((tree_t.word(pos), tree_t.proof(pos)))
+        elif raw.op == OP_RAMW:
+            if V[raw.refs[0]]:
+                addr = sum(V[r] << i for i, r in enumerate(raw.refs[1:1 + raw.a]))
+                pos, _ = mem_pos(raw.bank, raw.a, raw.w, addr)
+                w.mem_writes.append((running.word(pos), running.proof(pos)))
+            apply(lambda off, ro=raw.off: off == ro)
+        o = raw.end
 
 
 def _check_words(dom: int, root: bytes, size: int, words: Dict[int, bytes], proof) -> bool:
@@ -1105,22 +1472,25 @@ VERIFY_CALLS = {"segment": 0, "beat_end": 0}   # call counter (tests assert one 
 
 
 def verify_segment(oracle, netlist_hash2_: bytes, state_root_: bytes, a: SegTuple, b: SegTuple, w,
-                   budget: Budget = DEFAULT_BUDGET) -> bool:
-    """Check that b is the canonical successor of the agreed tuple a in a beat whose agreed stateRoot is
-    state_root_. Reads the file only through the chunk oracle bound to netlist_hash2_ (largeInfo /
-    largeChunk of a store); w is a SegWitness or its encoding (spec 6.3). Returns False on any
-    failure."""
+                   budget: Budget = DEFAULT_BUDGET, mem_root: bytes = None) -> bool:
+    """verify_segment(netlistHash2, latchRoot, memRoot, a, b, witness, budget) of spec 6.1: check that b is the
+    canonical successor of the agreed tuple a in a beat whose agreed latch root is state_root_ (the stateRoot
+    for a file without MEM, the latchRoot of the opening of stateRoot_t for a file with MEM) and whose memory
+    root is mem_root (default ZERO_MEM: files without MEM, and beat 0). Reads the file only through the chunk
+    oracle bound to netlist_hash2_ (largeInfo / largeChunk of a store); w is a SegWitness or its encoding
+    (spec 6.3). Returns False on any failure."""
     VERIFY_CALLS["segment"] += 1
     LAST_READ["chunks"] = 0
     try:
         if isinstance(w, (bytes, bytearray)):
             w = parse_seg_witness(bytes(w))
-        return _verify_segment(oracle, netlist_hash2_, state_root_, a, b, w, budget)
+        return _verify_segment(oracle, netlist_hash2_, state_root_, ZERO_MEM if mem_root is None else mem_root,
+                               a, b, w, budget)
     except (Missing, Invalid, StoreError, KeyError, IndexError, ValueError, TypeError):
         return False
 
 
-def _verify_segment(oracle, nh2: bytes, sroot: bytes, a: SegTuple, b: SegTuple, w: SegWitness,
+def _verify_segment(oracle, nh2: bytes, sroot: bytes, mem_t: bytes, a: SegTuple, b: SegTuple, w: SegWitness,
                     budget: Budget) -> bool:
     file_len = oracle_file_len(oracle, nh2)
     if file_len is None or file_len > MAX_FILE:
@@ -1138,6 +1508,11 @@ def _verify_segment(oracle, nh2: bytes, sroot: bytes, a: SegTuple, b: SegTuple, 
     if not _check_words(DOM_SIGNAL, a.p, n_pw, w.p_words, w.p_proof):
         return False
     zero_state = sroot == EMPTY        # the all-zero state of any length (spec 4.3): no state words
+    # The memory root is an argument, like the latch root: the game takes both from the opening of the agreed
+    # stateRoot_t (spec 7.4), so the verifier never infers the form of a state root from the witness.
+    zero_mem = mem_t == ZERO_MEM       # the all-zero memory: RAM reads give 0 and consume no proof
+    if len(mem_t) != 32:
+        return False
     if zero_state:
         if w.s_size or w.s_words or w.s_proof:
             return False
@@ -1149,6 +1524,8 @@ def _verify_segment(oracle, nh2: bytes, sroot: bytes, a: SegTuple, b: SegTuple, 
         # canonical_segment has parsed the next record's structural bytes too (maximality)
         partial_k = fs >> 8 if w.p_partial is not None else -1
         local: List[int] = []
+        mroot = a.m                    # running memory root: after the writes of the records before this one
+        ri = wi = 0
 
         def val(x: int) -> int:
             if x < 2:
@@ -1165,7 +1542,7 @@ def _verify_segment(oracle, nh2: bytes, sroot: bytes, a: SegTuple, b: SegTuple, 
             elif raw.op == OP_LATCH:
                 vs = [0 if zero_state else word_get(w.s_words[l >> 8], l & 255, KIND_BITS)]
                 accd.append(raw.refs[0])
-            else:
+            elif raw.op in (OP_ROM, OP_ROMP):
                 addr = 0
                 for i, r in enumerate(raw.refs):
                     addr |= val(r) << i
@@ -1173,13 +1550,39 @@ def _verify_segment(oracle, nh2: bytes, sroot: bytes, a: SegTuple, b: SegTuple, 
                 got = read(lo, hi - lo)
                 base = (addr * raw.w) & 7
                 vs = [(got[(base + j) >> 3] >> ((base + j) & 7)) & 1 for j in range(raw.w)]
+            elif raw.op == OP_RAMR:
+                addr = sum(val(r) << i for i, r in enumerate(raw.refs))
+                if zero_mem:
+                    vs = [0] * raw.w
+                else:
+                    word, sibs = w.mem_reads[ri]
+                    ri += 1
+                    pos, slot = mem_pos(raw.bank, raw.a, raw.w, addr)
+                    if len(word) != 32 or mem_path_root(word, pos, sibs) != mem_t:
+                        return False
+                    e = word_entry(word, slot, raw.w)
+                    vs = [(e >> j) & 1 for j in range(raw.w)]
+            else:  # OP_RAMW: creates no signals; applies the write to the running memory root
+                vs = []
+                if val(raw.refs[0]):
+                    addr = sum(val(r) << i for i, r in enumerate(raw.refs[1:1 + raw.a]))
+                    wd = sum(val(r) << j for j, r in enumerate(raw.refs[1 + raw.a:]))
+                    old, sibs = w.mem_writes[wi]
+                    wi += 1
+                    pos, slot = mem_pos(raw.bank, raw.a, raw.w, addr)
+                    if len(old) != 32 or mem_path_root(old, pos, sibs) != mroot:
+                        return False
+                    mroot = mem_path_root(word_patch(old, slot, raw.w, wd), pos, sibs)
             for v in vs:
                 local.append(v)
                 accp.append(v)
     finally:
         LAST_READ["chunks"] = len(read.cache)
+    if ri != len(w.mem_reads) or wi != len(w.mem_writes):
+        return False
     return (b.byte_offset == seg.end_off and b.first_signal == seg.end_signal
-            and b.latch_ordinal == seg.end_latch and b.p == accp.root() and b.d == accd.root())
+            and b.latch_ordinal == seg.end_latch and b.p == accp.root() and b.d == accd.root()
+            and b.m == mroot)
 
 
 # ---------------------------------------------------------------- 7 beat-end segments
@@ -1325,9 +1728,10 @@ def checkpoint_times(T: int, K: int) -> List[int]:
     return sorted(set(range(0, T, K)) | {T})
 
 
-def seg_tuple_leaf(j: int, s: SegTuple) -> bytes:
+def seg_tuple_leaf(j: int, s: SegTuple, has_mem: bool = False) -> bytes:
+    """segLeaf (spec 4.5); for a file with the MEM flag, M is appended to the preimage."""
     return sha256(bytes([DOM_TUPLE, 0]) + u32(j) + u64(s.byte_offset) + u32(s.first_signal)
-                  + u32(s.latch_ordinal) + s.p + s.d)
+                  + u32(s.latch_ordinal) + s.p + s.d + (s.m if has_mem else b""))
 
 
 def end_tuple_leaf(kind: str, k: int, e: EndTuple) -> bytes:
@@ -1357,6 +1761,12 @@ def serialize_seg_witness(w: SegWitness) -> bytes:
     out = _ser_frontier(w.p_peaks, w.p_partial) + _ser_words(w.p_words) + _ser_hashes(w.p_proof)
     out += _ser_frontier(w.d_peaks, w.d_partial)
     out += u32(w.s_size) + _ser_words(w.s_words) + _ser_hashes(w.s_proof)
+    if w.mem_reads or w.mem_writes:      # memory extension (spec 6.3), absent when both lists are empty
+        for lst in (w.mem_reads, w.mem_writes):
+            out += u16(len(lst))
+            for word, sibs in lst:
+                mask = sum(1 << l for l in range(MEM_HEIGHT) if sibs[l] == ZERO_H[l])
+                out += word + u32(mask) + b"".join(sibs[l] for l in range(MEM_HEIGHT) if not (mask >> l) & 1)
     return out
 
 
@@ -1415,8 +1825,21 @@ def parse_seg_witness(data: bytes) -> SegWitness:
     d_peaks, d_partial = ps.frontier()
     s_size = ps.uint(4)
     s_words, s_proof = ps.words(), ps.hashes(2)
+    w = SegWitness(p_peaks, p_partial, p_words, p_proof, d_peaks, d_partial, s_size, s_words, s_proof)
+    if ps.p < len(ps.d):                     # memory extension (spec 6.3)
+        for lst in (w.mem_reads, w.mem_writes):
+            for _ in range(ps.uint(2)):
+                word, mask = ps.take(32), ps.uint(4)
+                if mask >> MEM_HEIGHT:
+                    raise Invalid("bad zero-sibling mask")
+                sibs = [ZERO_H[l] if (mask >> l) & 1 else ps.take(32) for l in range(MEM_HEIGHT)]
+                if any(not (mask >> l) & 1 and sibs[l] == ZERO_H[l] for l in range(MEM_HEIGHT)):
+                    raise Invalid("a zero sibling must be omitted (non-canonical)")
+                lst.append((word, sibs))
+        if not w.mem_reads and not w.mem_writes:
+            raise Invalid("empty memory extension (non-canonical)")
     ps.end()
-    return SegWitness(p_peaks, p_partial, p_words, p_proof, d_peaks, d_partial, s_size, s_words, s_proof)
+    return w
 
 
 def parse_end_witness(data: bytes) -> EndWitness:
@@ -1481,3 +1904,30 @@ def witness_breakdown(w: SegWitness) -> dict:
         "sWords": len(w.s_words), "sProofHashes": len(w.s_proof),
         "frontierHashes": len(w.p_peaks) + len(w.d_peaks), "total": len(serialize_seg_witness(w)),
     }
+
+
+# ---------------------------------------------------------------- witness bound of files with RAM ports
+
+MEM_ACCESS_MAX_BYTES = 32 + 4 + 32 * MEM_HEIGHT          # word, zero-sibling mask, 24 siblings (no zero sibling)
+MEM_EXT_HEADER = 2 + 2                                   # the two counts of the memory extension
+RAMW_MAX_REFS = 1 + ROM_MAX_A + ROM_MAX_W                # 277: a lone write port's distinct P words
+
+
+def seg_witness_bound_ram(budget: Budget = DEFAULT_BUDGET) -> int:
+    """Upper bound of a segment witness of a file with RAM ports (spec 6.3). Within the budget,
+    kP + kS + MEM_WEIGHT * kM <= extWords. A segment whose first record alone exceeds the budget is that record
+    and nothing else: a write port reads at most 277 P words and makes 1 memory access (a ROM, ROM port or RAM
+    read port at most 20 words and at most 1 access)."""
+    fixed = (1 + 16 * 32 + 1 + 32) + (1 + 21 * 32 + 1 + 32) + 2 + 2 + 4 + 2 + 2 + MEM_EXT_HEADER
+
+    def words(k: int) -> int:
+        return 36 * k + 32 * multiproof_bound(k, SIGNAL_WORD_DEPTH)
+
+    best = 0
+    e = budget.ext_words
+    for km in range(e // MEM_WEIGHT + 1):
+        rest = e - MEM_WEIGHT * km
+        for kp in range(rest + 1):
+            best = max(best, km * MEM_ACCESS_MAX_BYTES + words(kp) + words(rest - kp))
+    lone = words(RAMW_MAX_REFS) + MEM_ACCESS_MAX_BYTES
+    return fixed + max(best, lone, words(ROM_MAX_A))
