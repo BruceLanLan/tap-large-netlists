@@ -103,8 +103,27 @@ python3 worst_witness.py   # near-worst-case witness: 74,896 bytes (bound 84,208
 
 All four ran with the results shown in the comments.
 
+## 6. Verilog converter
+
+Needs `yosys` and Icarus Verilog (`iverilog`, `vvp`) on `PATH`; local run with Yosys 0.69 and Icarus Verilog 13.0.
+
+```
+cd tools/verilog2tapnet
+python3 -m unittest discover -s tests -v
+python3 validate.py
+```
+
+| Check | Result |
+|---|---|
+| `tests/test_verilog2tapnet.py` | 21 tests, OK (about 10 s), Python 3.9.6 and 3.11.15: every design converts, is valid under `tapnet2.decode`, and matches iverilog beat by beat (two seeds); RAM contents compared on every beat; a memory bit flipped in the tapnet run is caught at the next beat; record kinds of the RAM and ROM-port designs; RAM builds smaller than LATCH builds; the output tail; nine unsupported designs rejected with a clear message |
+| `validate.py` | 24 conversions of 20 designs and 5 LATCH builds, each 1,000 beats (exhaustive for small combinational designs) plus the `--best` variant; about 90 s; writes `out/` (not committed: sizes depend on the Yosys version) and prints the tables of `tools/verilog2tapnet/README.md` |
+
+The tests assert behaviour, record kinds and bounds, not exact gate counts, because those depend on the Yosys and
+ABC version (CI uses the older Ubuntu package).
+
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs sections 1, 3 (`gen_diff.py`, `game_gen.py`), 4 (`test_cartridge.py`) and the
 first three scripts of section 5 on Python 3.9 and 3.11, and section 2 with Foundry 1.8.3, and fails if any
-generated file differs from the committed one. It has not run yet: the repository has no remote.
+generated file differs from the committed one. The job `verilog2tapnet` installs `yosys` and `iverilog` from the
+Ubuntu 24.04 packages and runs the unit tests of section 6 (not `validate.py`). It has not run yet: the repository has no remote.

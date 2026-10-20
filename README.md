@@ -32,6 +32,7 @@ The specification is [`TAPs/TAP-draft-large-netlists.md`](TAPs/TAP-draft-large-n
 | `contracts/` | Foundry project: store, verifiers, hash library, an informative dispute game, tests and test data | CC0 (SPDX headers) |
 | `demo/cartridge/` | TAPBOY-8, an 8-bit CPU with a game in ROM, as one `tapnet/2` file, with a score dispute | MIT |
 | `measurements/` | L1 data fee snapshot (Base, X Layer) and the scripts that re-run the attacks found in internal review | MIT / CC0 |
+| `tools/verilog2tapnet/` | Verilog → `tapnet/1` / `tapnet/2` converter (Yosys), with ROM records, ROM read ports and RAM ports, validated beat by beat against Icarus Verilog | MIT |
 | `docs/TESTING.md` | Exact commands and current results | MIT |
 
 ### Run the tests
@@ -42,9 +43,10 @@ Python 3.9+ (standard library only) and Foundry 1.8.3. `contracts/lib/forge-std`
 ( cd assets/tap-draft-large-netlists && python3 make_vectors.py --check && python3 test_tapnet2.py && python3 test_ram.py )
 ( cd contracts && forge test )
 ( cd demo/cartridge && python3 test_cartridge.py )
+( cd tools/verilog2tapnet && python3 -m unittest discover -s tests -v )   # needs yosys and iverilog
 ```
 
-Current results: 68 Python tests (50 + 18 for RAM ports), 18 cartridge tests and 89 Foundry tests (including 118 end-to-end dispute scenarios, every vector replayed and a 3,500-case differential corpus), all passing ([`docs/TESTING.md`](docs/TESTING.md)). `vectors.json` SHA-256: `b6ba365e912f149e1ab8e292588fac7f934cdb1fa1ba6d8d1b8ac3dabfd9f2d6`.
+Current results: 68 Python tests (50 + 18 for RAM ports), 18 cartridge tests, 89 Foundry tests (including 118 end-to-end dispute scenarios, every vector replayed and a 3,500-case differential corpus) and 21 tests of the Verilog converter, all passing ([`docs/TESTING.md`](docs/TESTING.md)). `vectors.json` SHA-256: `b6ba365e912f149e1ab8e292588fac7f934cdb1fa1ba6d8d1b8ac3dabfd9f2d6`.
 
 ### Key figures (measured, see Appendix B of the TAP)
 
@@ -55,6 +57,16 @@ Current results: 68 Python tests (50 + 18 for RAM ports), 18 cartridge tests and
 - A dispute that reaches the verifier: 1.4 to 5.9 million gas for all parties together in the reference scenarios.
 
 The TAP makes no claim about the monetary cost of uploads or disputes.
+
+### Verilog to `tapnet` ([`tools/verilog2tapnet/`](tools/verilog2tapnet/README.md))
+
+`verilog2tapnet.py` turns a single-clock synthesizable Verilog design into a `tapnet/1` or `tapnet/2` file with
+Yosys: read-only memories become ROM records (further read ports of the same ROM become ROM read ports `0x13`),
+memories with synchronous write and asynchronous read become RAM banks with RAM read and write ports, and every
+file is checked with `tapnet2.py` and compared with Icarus Verilog beat by beat, including the whole RAM contents.
+A 16 × 8 register file with two read ports and one write port takes 94 bytes and no gate (9,446 bytes with
+LATCH-built memory), a small stack machine 4,031 bytes (16,321), an accumulator CPU with a 16 × 8 data memory
+3,374 bytes (9,866).
 
 ### What is not done
 
@@ -84,7 +96,11 @@ X [@BruceBlue](https://x.com/BruceBlue) · GitHub [@BruceLanLan](https://github.
 
 ### 运行测试
 
-需要 Python 3.9+（只用标准库）与 Foundry 1.8.3。`contracts/lib/forge-std` 不随仓库提交，见 [`contracts/lib/README.md`](contracts/lib/README.md)。命令与当前结果见 [`docs/TESTING.md`](docs/TESTING.md)：Python 67 项（其中 RAM 端口 18 项）、卡带 17 项、Foundry 84 项（包括 111 个端到端争议场景、全部向量的重放与 3,500 个用例的差分语料），全部通过。
+需要 Python 3.9+（只用标准库）与 Foundry 1.8.3。`contracts/lib/forge-std` 不随仓库提交，见 [`contracts/lib/README.md`](contracts/lib/README.md)。命令与当前结果见 [`docs/TESTING.md`](docs/TESTING.md)：Python 68 项（其中 RAM 端口 18 项）、卡带 18 项、Foundry 89 项（包括 118 个端到端争议场景、全部向量的重放与 3,500 个用例的差分语料）、Verilog 转换器 21 项，全部通过。
+
+### Verilog 转 `tapnet`
+
+[`tools/verilog2tapnet/`](tools/verilog2tapnet/README.md)：用 Yosys 把单时钟可综合 Verilog 转成 `tapnet/1` / `tapnet/2`。只读存储器 → ROM 记录（同一 ROM 的其余读口 → ROM 读口 `0x13`），同步写、异步读的存储器 → RAM 存储体（RAM 读口、写口）；每个文件都用 `tapnet2.py` 校验，并与 Icarus Verilog 逐拍对照（包括 RAM 全部内容）。16×8 寄存器堆（2 读 1 写）94 字节、0 个门（LATCH 实现 9,446 字节）；小型栈机 4,031 字节（16,321）；带 16×8 数据存储器的累加器 CPU 3,374 字节（9,866）。
 
 ### 尚未完成
 

@@ -50,6 +50,23 @@ All notable changes to this repository. The TAP text is a draft; its number is a
   memory access are unchanged: the costliest segment with RAM ports measured 5.9 million gas against 9.3 million
   for the costliest call. Appendix B gives the measurements instead of the estimates.
 
+### Tools
+
+- New `tools/verilog2tapnet/`: a Verilog → `tapnet/1` / `tapnet/2` converter built on Yosys, self-contained in
+  this repository (it uses `tapnet2.py` for validity, evaluation and hashes, and `assets/tap-02/reference.py` as the
+  independent evaluator). Read-only memories become ROM records and further read ports of the same ROM ROM read
+  ports `0x13`; memories with synchronous write ports on the clock and asynchronous read ports, starting at zero,
+  become RAM banks (`0x11` / `0x12`, MEM flag; byte enables split banks; write ports in Yosys priority order);
+  other memories stay flip-flops, with the reason in the report. The output tail moves NANDs, LATCHes and whole
+  read ports to the end of the file when nothing earlier reads them, uses a second LATCH (or a second ROM read port)
+  instead of two inverters, and documents the remaining costs. `validate.py` compares every design with Icarus
+  Verilog beat by beat, including the whole RAM contents; 24 conversions of 20 designs (5 with RAM ports, 2 with ROM read ports) and
+  9 rejected ones; 21 unit tests. RAM ports against LATCH-built memories: register file 16 × 8 94 against 9,446
+  bytes, stack machine 4,031 against 16,321, accumulator CPU with a 16 × 8 data memory 3,374 against 9,866.
+- CI: a new job `verilog2tapnet` (ubuntu-24.04) installs `yosys` and `iverilog` from the Ubuntu packages and runs
+  the converter's tests; the existing jobs are unchanged.
+- README (Chinese section): test counts brought in line with the English section.
+
 ## v0.1 (draft) — 2026-10-19
 
 First snapshot of **Large Netlists and Verifiable Execution** (`TAP-draft-large-netlists`) and its reference

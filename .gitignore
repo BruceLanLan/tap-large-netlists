@@ -15,3 +15,6 @@ contracts/lib/forge-std
 .env
 .env.*
 .DS_Store
+
+# verilog2tapnet: generated netlists and results of validate.py (sizes depend on the Yosys version)
+tools/verilog2tapnet/out/
