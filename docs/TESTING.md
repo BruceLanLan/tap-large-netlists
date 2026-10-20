@@ -1,8 +1,7 @@
 # Testing
 
-Exact commands, run from the repository root, and the results of the last local run (Python and cartridge:
-2026-10-20, macOS, Python 3.9.6 and 3.11.15; Solidity: 2026-10-19, Foundry 1.8.3, solc 0.8.28, before the RAM ports were
-added to the Python reference; see section 2).
+Exact commands, run from the repository root, and the results of the last local run (2026-10-20, macOS; Python
+3.9.6 and 3.11.15; Foundry 1.8.3, solc 0.8.28).
 
 ## Requirements
 
@@ -30,10 +29,6 @@ environment variable `TAP02_REFERENCE`). Without it, the suite still runs and on
 
 ## 2. Solidity reference implementation
 
-**Pending:** the Solidity verifier, game and test-data generators do not implement RAM ports, ROM read ports or
-the `latchRoot` / `memRoot` arguments of `verify_segment` yet, and `test/Vectors.t.sol` still pins the previous
-SHA-256 of `vectors.json`. The results below are those of the last run before the RAM ports were added.
-
 ```
 cd contracts
 forge build
@@ -42,15 +37,20 @@ forge test
 
 | Suite | Tests | Result |
 |---|---|---|
-| `test/Vectors.t.sol` | 9 | pass (replays every `verifySegment`, `verifyBeatEnd`, `store` and `checkpoints` vector; checks the SHA-256 of `vectors.json`) |
-| `test/Differential.t.sol` | 3 | pass (1,968-case corpus, two fuzz tests at 256 runs) |
+| `test/Vectors.t.sol` | 11 | pass (replays all 177 `verifySegment` and 60 `verifyBeatEnd` vectors, RAM vectors included, with the number of chunks read on every positive step, and the `store` and `checkpoints` vectors; checks the SHA-256 of `vectors.json`, the memory constants `Z_0 … Z_24` and `ZERO_MEM`, the segment leaves with `M`, and the memory encoding rules of §6.3) |
+| `test/Differential.t.sol` | 3 | pass (3,500-case corpus, of which 1,532 cases on 40 files with RAM ports or ROM read ports; two fuzz tests at 256 runs, also run at 20,000) |
 | `test/Unit.t.sol` | 7 | pass |
-| `test/GasStore.t.sol` | 1 | pass |
-| `test/GasVerify.t.sol` | 1 | pass |
-| `test/game/E2E.t.sol` | 31 | pass (76 end-to-end scenarios) |
+| `test/GasStore.t.sol` | 2 | pass (the 456-chunk upload; the cartridge's upload with RAM ports and with LATCH-based RAM) |
+| `test/GasVerify.t.sol` | 1 | pass (114 cases, including RAM read and write ports, ROM read ports and the cartridge) |
+| `test/game/E2E.t.sol` | 44 | pass (111 end-to-end scenarios on five files, three of them with RAM ports: `ram16`, `rammix` and the cartridge) |
 | `test/game/MultiChallenger.t.sol` | 6 | pass |
-| `test/game/GameLimits.t.sol` | 10 | pass |
-| **Total** | **68** | **68 passed, 0 failed** (about 15 s) |
+| `test/game/GameLimits.t.sol` | 10 | pass (including the costliest final calls, with and without RAM ports, through the game) |
+| **Total** | **84** | **84 passed, 0 failed** (about 60 s) |
+
+Contract sizes (`forge build --sizes`; EIP-170 limit 24,576 bytes): `TapLargeDisputeGame` 24,079, `TapLargeGameLib`
+3,223, `TapLargeVerifier` 13,837, `TapLargeNetlistStoreOwned` 4,468 bytes of runtime code. `GameHarness`, a
+test-only subclass of the game, is above the limit (26,302 bytes), so `forge build --sizes` reports an error for it;
+Foundry tests do not enforce the limit.
 
 The gas tests rewrite `contracts/test/data/game_gas.csv` and `gas_cases.bin.csv`; after
 the run they are byte-identical to the committed files (`git diff --exit-code`).
@@ -61,9 +61,9 @@ The binary test data is generated with the Python reference and is reproducible 
 
 ```
 cd contracts/test/data
-python3 gen_diff.py     # diff_cases.bin   (about 3 s)
-python3 game_gen.py     # game_moves.bin   (about 3 s)
-python3 gen_gas.py      # gas_cases.bin    (about 18 s)
+python3 gen_diff.py     # diff_cases.bin   (about 6 s)
+python3 game_gen.py     # game_moves.bin   (about 10 s)
+python3 gen_gas.py      # gas_cases.bin    (about 70 s)
 ```
 
 All three outputs were regenerated and are identical to the committed files.

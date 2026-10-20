@@ -11,10 +11,16 @@ A scenario is one claim and one or more disputes about it, each keyed by its cha
 scenarios end, when the claimant wins, with an `accept` after the challenge window; multi-challenger scenarios
 interleave several disputes (sock puppets, two honest challengers, two cheating challengers).
 
+Games (one per file): `message` (TINY budget, inputs of case (a)), `large` (default budget, case (b)), and the
+files with RAM ports (MEM): `ram16` (TINY, case (a)), `rammix` (default, case (b)) with the RAM cheaters of
+bisect_sim (a RAM read lie, a forged RAM write, a write-data gate lie, a LATCH lie, a lie in beat 0) and a claimant
+that cannot open the agreed stateRoot_t, and `dodge`, the TAPBOY-8 cartridge of demo/cartridge (default budget,
+case (b), T = 651, K = 32) with the score disputes of demo/cartridge/dispute_demo.py.
+
 Usage: python3 game_gen.py     (deterministic; writes game_moves.bin next to this file)
 
 File format (big-endian):
-  file     = "TDG2" ‖ u8(nGames) ‖ game* ‖ u32(nScenarios) ‖ scenario*
+  file     = "TDG3" ‖ u8(nGames) ‖ game* ‖ u32(nScenarios) ‖ scenario*
   game     = u32(len) ‖ file bytes ‖ u32(gates) ‖ u32(extWords) ‖ u32(chunks) ‖ u8(input case: 0 (a), 1 (b))
   scenario = u16(nameLen) ‖ name ‖ u8(game) ‖ u8(final claim status: 1 open, 2 rejected, 3 accepted)
              ‖ u8(nDisputes) ‖ dispute* ‖ u16(nMoves) ‖ move*
@@ -22,12 +28,13 @@ File format (big-endian):
              ‖ u8(verifierCalls) ‖ u8(kind: 0 seg, 1 out, 2 state, 255 none)
   move     = u8(actor) ‖ u8(type) ‖ u8(dispute: its challenger actor, 255 for claim-level moves) ‖ u32(len) ‖ body
   actors   = 0 claimant, 1 challenger, 2 bystander, 3 input provider, 4 second challenger
-  proof    = u16(count) ‖ hashes;  tuple = u64 ‖ u32 ‖ u32 ‖ P ‖ D;  end = u32(ordinal) ‖ root
+  proof    = u16(count) ‖ hashes;  tuple = u64 ‖ u32 ‖ u32 ‖ P ‖ D ‖ M;  end = u32(ordinal) ‖ root
   bodies:  1 CLAIM          u64 T ‖ u64 K ‖ inputRoot ‖ u16 n ‖ leaves ‖ u32 len ‖ inputData (case (a) only)
            2 CHALLENGE      u32 i ‖ prevSr ‖ prevIo ‖ proof ‖ leafCur ‖ proof ‖ sr ‖ io
            3 COMMIT_BEATS   root ‖ proofLo ‖ proofHi
            4 REVEAL_BEAT    u64 expected beat ‖ sr ‖ io ‖ proof
-           5 COMMIT_TUPLES  u32 len ‖ packedInputs ‖ proof ‖ srT ‖ ioT ‖ srT1 ‖ ioT1 ‖ 3 roots ‖ 3 u32 lengths
+           5 COMMIT_TUPLES  u32 len ‖ packedInputs ‖ proof ‖ srT ‖ ioT ‖ srT1 ‖ ioT1 ‖ latchRootT ‖ memRootT
+                            ‖ 3 roots ‖ 3 u32 lengths
                             ‖ tuple segLast ‖ end outLast ‖ end stateLast ‖ 6 proofs (seg0, segLast, out0,
                             outLast, state0, stateLast)
            6 REVEAL_SEG     u64 expected index ‖ tuple ‖ proof
@@ -45,6 +52,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "..", "..", "assets", "tap-draft-large-netlists"))
+sys.path.insert(0, os.path.join(HERE, "..", "..", "..", "demo", "cartridge"))
 
 import bisect_sim as bs  # noqa: E402
 import tapnet2 as t2  # noqa: E402
@@ -52,7 +60,7 @@ import tapnet2 as t2  # noqa: E402
 # must match TapLargeDisputeGame.Reason
 REASONS = ["None", "Timeout", "IndexOutOfRange", "BadCheckpointProof", "LeavesEqual", "BadEndpoints", "BadProof",
            "BadInputs", "BadFirstTuple", "SegNotAtEof", "OutputMismatch", "StateMismatch", "BadLastTuple",
-           "VerifierTrue", "VerifierFalse"]
+           "VerifierTrue", "VerifierFalse", "BadOpening"]
 R = {n: i for i, n in enumerate(REASONS)}
 CL, CH, BY, PV, CH2 = 0, 1, 2, 3, 4     # actors (roles inside a dispute are CL and CH)
 NONE = 255
@@ -74,7 +82,7 @@ def u16(x): return struct.pack(">H", x)
 def u32(x): return struct.pack(">I", x)
 def u64(x): return struct.pack(">Q", x)
 def proof(p): return u16(len(p)) + b"".join(p)
-def tup(s): return u64(s.byte_offset) + u32(s.first_signal) + u32(s.latch_ordinal) + s.p + s.d
+def tup(s): return u64(s.byte_offset) + u32(s.first_signal) + u32(s.latch_ordinal) + s.p + s.d + s.m
 def end(e): return u32(e.ordinal) + e.root
 
 
@@ -136,6 +144,8 @@ class Game:
     def _run(self):
         cl, ch = self.cl, self.ch
         file_len, n_in, n_out, _, _ = self.store.largeInfo(self.nh2)
+        has_mem = bool(self.store.largeChunk(self.nh2, 0)[7] & t2.FLAG_MEM)    # recorded with the claim (§7.1)
+        self.has_mem = has_mem
         _, T, K, input_root, leaves = cl.claim_data(self.nh2)
         cps = t2.checkpoint_times(T, K)
         n = len(cps)
@@ -197,6 +207,11 @@ class Game:
             self.stop = (CL, M_COMMIT_TUPLES, self.count.get((CL, M_COMMIT_TUPLES), 0))
             self.emit(CL, M_COMMIT_TUPLES, b"")
         packed, in_proof = rev
+        # §7.4: for a file with MEM and stateRoot_t != EMPTY the claimant opens stateRoot_t; otherwise the game
+        # uses (stateRoot_t, ZERO_MEM) and ignores the passed roots (sent as zero)
+        latch_t, mem_t = sr_t, t2.ZERO_MEM
+        opening = cl.state_opening(t) if has_mem and sr_t != t2.EMPTY else None
+        sent = opening if opening is not None else (bytes(32), bytes(32))
         seg0_pub = None
         ends = {}
         com = {}
@@ -209,7 +224,8 @@ class Game:
             lists, lvls = d["lists"], d["levels"]
             ln = [len(lists[k]) for k in KINDS]
             body = (u32(len(packed)) + packed + proof(in_proof)) if who == CL else (u32(0) + proof([]))
-            body += sr_t + io_t + sr1 + io1 + b"".join(c[k][0] for k in KINDS) + b"".join(u32(x) for x in ln)
+            body += sr_t + io_t + sr1 + io1 + (sent[0] + sent[1] if who == CL else bytes(64))
+            body += b"".join(c[k][0] for k in KINDS) + b"".join(u32(x) for x in ln)
             body += tup(lists["seg"][-1]) + end(lists["out"][-1]) + end(lists["state"][-1])
             proofs = {k: (t2.merkle_proof(lvls[k], 0), t2.merkle_proof(lvls[k], len(lists[k]) - 1)) for k in KINDS}
             if getattr(p, "mode", None) == "last_proof":
@@ -222,9 +238,13 @@ class Game:
                 leaf = t2.sha256(bytes([t2.DOM_INPUT]) + t2.u64(t) + t2.sha256(packed))
                 if not t2.merkle_verify(input_root, T, t, leaf, in_proof):
                     raise Done(CH, R["BadInputs"])
-                seg0_pub = t2.initial_tuple(n_in, t2.unpack_inputs(n_in, packed))
+                if has_mem and sr_t != t2.EMPTY:
+                    if t2.combine_state(*sent) != sr_t:
+                        raise Done(CH, R["BadOpening"])
+                    latch_t, mem_t = sent
+                seg0_pub = t2.initial_tuple(n_in, t2.unpack_inputs(n_in, packed), mem_t)
             r = self.reveal_checks({k: c[k][0] for k in KINDS}, lists, proofs, seg0_pub, file_len, n_out, io_t,
-                                   sr1, io1)
+                                   sr1, io1, has_mem)
             if r:
                 raise Done(1 - who, R[r])
             ends[who] = {k: lists[k][-1] for k in KINDS}
@@ -237,7 +257,7 @@ class Game:
             v, pr = self.P[who].reveal_tuple(t, kind, j)
             if kind == "seg":
                 self.emit(who, M_REVEAL_SEG, u64(j) + tup(v) + proof(pr))
-                lf = t2.seg_tuple_leaf(j, v)
+                lf = t2.seg_tuple_leaf(j, v, has_mem)
             else:
                 self.emit(who, M_REVEAL_END, u64(j) + end(v) + proof(pr))
                 lf = t2.end_tuple_leaf(kind, j, v)
@@ -265,7 +285,7 @@ class Game:
         w = self.P[prover].witness(t, kind, hi_j)
         if kind == "seg":
             self.emit(prover, M_PROVE_SEG, tup(a) + tup(b) + u32(len(w)) + w)
-            ok = t2.verify_segment(self.store, self.nh2, sr_t, a, b, w, self.budget)
+            ok = t2.verify_segment(self.store, self.nh2, latch_t, a, b, w, self.budget, mem_t)
         else:
             seg_m = ends[CL]["seg"]
             self.emit(prover, M_PROVE_END, tup(seg_m) + end(a) + end(b) + u32(len(w)) + w)
@@ -273,11 +293,12 @@ class Game:
         raise Done(prover if ok else 1 - prover, R["VerifierTrue" if ok else "VerifierFalse"], 1, ki)
 
     @staticmethod
-    def reveal_checks(roots, lists, proofs, seg0_pub, file_len, n_out, io_t, sr1, io1):
+    def reveal_checks(roots, lists, proofs, seg0_pub, file_len, n_out, io_t, sr1, io1, has_mem=False):
         """Section 7.4 checks 1-5 in the contract's order: first-tuple proofs against the public values, last-tuple
-        proofs, then checks 2, 4, 5."""
+        proofs, then checks 2, 4, 5 (check 5 with the combined root for a file with MEM)."""
         seg, out, st = lists["seg"], lists["out"], lists["state"]
-        leaf = lambda k, j, v: t2.seg_tuple_leaf(j, v) if k == "seg" else t2.end_tuple_leaf(k, j, v)  # noqa: E731
+        leaf = lambda k, j, v: (t2.seg_tuple_leaf(j, v, has_mem) if k == "seg"  # noqa: E731
+                                else t2.end_tuple_leaf(k, j, v))
         first = {"seg": seg0_pub, "out": t2.EndTuple(0, t2.EMPTY), "state": t2.EndTuple(0, t2.EMPTY)}
         for k in KINDS:
             if not t2.merkle_verify(roots[k], len(lists[k]), 0, leaf(k, 0, first[k]), proofs[k][0]):
@@ -290,7 +311,8 @@ class Game:
             return "SegNotAtEof"
         if out[-1].ordinal != n_out or t2.io_next(io_t, out[-1].root) != io1:
             return "OutputMismatch"
-        if st[-1].ordinal != seg[-1].latch_ordinal or st[-1].root != sr1:
+        want = t2.combine_state(st[-1].root, seg[-1].m) if has_mem else st[-1].root
+        if st[-1].ordinal != seg[-1].latch_ordinal or want != sr1:
             return "StateMismatch"
         return None
 
@@ -305,7 +327,7 @@ class OutputLiar(bs.Party):
         seg = d["lists"]["seg"]
         if len(seg) >= 2 and seg[-1].byte_offset == seg[-2].byte_offset:   # drop the appended tuple
             seg.pop()
-            d["levels"]["seg"] = t2.merkle_levels([t2.seg_tuple_leaf(j, x) for j, x in enumerate(seg)])
+            d["levels"]["seg"] = t2.merkle_levels([t2.seg_tuple_leaf(j, x, self.nl.has_mem) for j, x in enumerate(seg)])
         return d
 
 
@@ -313,9 +335,10 @@ def _flip(h: bytes) -> bytes:
     return bytes([h[0] ^ 0xFF]) + h[1:]
 
 
-def _rebuild(d, kind):
+def _rebuild(d, kind, has_mem=False):
     lst = d["lists"][kind]
-    leaves = [t2.seg_tuple_leaf(j, x) if kind == "seg" else t2.end_tuple_leaf(kind, j, x) for j, x in enumerate(lst)]
+    leaves = [t2.seg_tuple_leaf(j, x, has_mem) if kind == "seg" else t2.end_tuple_leaf(kind, j, x)
+              for j, x in enumerate(lst)]
     d["levels"][kind] = t2.merkle_levels(leaves)
 
 
@@ -359,16 +382,16 @@ class RuleBreaker(bs.Party):
             seg, out, st = d["lists"]["seg"], d["lists"]["out"], d["lists"]["state"]
             if self.mode == "seg0":
                 seg[0] = seg[0]._replace(p=_flip(seg[0].p))
-                _rebuild(d, "seg")
+                _rebuild(d, "seg", self.nl.has_mem)
             elif self.mode == "seg_eof":
                 seg[-1] = seg[-1]._replace(byte_offset=seg[-1].byte_offset - 1)
-                _rebuild(d, "seg")
+                _rebuild(d, "seg", self.nl.has_mem)
             elif self.mode == "out_root":
                 out[-1] = t2.EndTuple(out[-1].ordinal, _flip(out[-1].root))
-                _rebuild(d, "out")
+                _rebuild(d, "out", self.nl.has_mem)
             elif self.mode == "state_root":
                 st[-1] = t2.EndTuple(st[-1].ordinal, _flip(st[-1].root))
-                _rebuild(d, "state")
+                _rebuild(d, "state", self.nl.has_mem)
         return d
 
 
@@ -417,12 +440,65 @@ def scenarios():
     out.append(("message/k1_c_rom_as_challenger", 0, None, mc["c_rom"], None, None, 1))
     out.append(("message/timeout_challenger_revealBeat", 0, None, {"kind": "state", "t": 21, "latch": 2},
                 (CH, M_REVEAL_BEAT, 1), None))
+    # files with RAM ports (MEM): the cheaters of bisect_sim.run_scenarios(("ram16", "rammix")) in both roles,
+    # wrong and withheld inputs, and a claimant that does not open the agreed stateRoot_t (§7.4)
+    for gi, ex in ((2, "ram16"), (3, "rammix")):
+        _, nl, inputs, K, budget, cheats = bs.scenario_setup(ex)
+        out.append((f"{ex}/honest_unchallenged", gi, None, None, None, None))
+        for cname, cheat in cheats.items():
+            out.append((f"{ex}/{cname}_as_claimant", gi, cheat, None, None, None))
+            out.append((f"{ex}/{cname}_as_challenger", gi, None, cheat, None, None))
+        base = dict(cheats["c_write_data"])
+        out.append((f"{ex}/inputs_wrong_as_claimant", gi, dict(base, inputs="wrong"), None, None, None))
+        out.append((f"{ex}/inputs_withhold_as_claimant", gi, dict(base, inputs="withhold"), None, None, None))
+        out.append((f"{ex}/i_no_opening_as_claimant", gi, dict(cheats["b_ram_write"], opening="none"), None, None,
+                    None))
+    out.append(("ram16/timeout_claimant_prove", 2, cheats_of("ram16")["a_ram_read"], None, (CL, M_PROVE_SEG, 0),
+                None))
+    # the TAPBOY-8 cartridge: the score disputes of demo/cartridge/dispute_demo.py (A to F)
+    dc = dodge_cheats()
+    out.append(("dodge/A_honest_unchallenged", 4, None, None, None, None))
+    out.append(("dodge/B_ram_write_as_claimant", 4, dc["state"], None, None, None))
+    out.append(("dodge/C_alu_gate_as_claimant", 4, dc["gate"], None, None, None))
+    out.append(("dodge/D_ram_write_as_challenger", 4, None, dc["state"], None, None))
+    out.append(("dodge/E_ram_read_as_claimant", 4, dc["read"], None, None, None))
+    out.append(("dodge/F_ram_read_as_challenger", 4, None, dc["read"], None, None))
     return out
+
+
+def cheats_of(ex):
+    return bs.scenario_setup(ex)[5]
+
+
+_DODGE = {}
+
+
+def dodge_setup():
+    """(data, nl, inputs, K, budget, cheats) of the cartridge game of demo/cartridge/dispute_demo.py."""
+    if not _DODGE:
+        import dispute_demo as dd
+        s = dd.setup()
+        cs, _ = dd.cheats(s)
+        _DODGE["v"] = (s["data"], s["nl"], s["inputs"], dd.K, dd.BUDGET, cs)
+    return _DODGE["v"]
+
+
+def dodge_cheats():
+    return dodge_setup()[5]
+
+
+class NoOpening(bs.Party):
+    """A cheating claimant that does not reveal a valid opening of the agreed stateRoot_t at level 3."""
+
+    def state_opening(self, t):
+        return None
 
 
 def _mk(c):
     if c and c.get("liar") == "output":
         return OutputLiar
+    if c and c.get("opening") == "none":
+        return NoOpening
     return RuleBreaker if c and "corrupt" in c else bs.Party
 
 
@@ -431,7 +507,10 @@ class Setup:
 
     def __init__(self, ex, case):
         self.ex, self.case = ex, case
-        self.data, self.nl, self.inputs, self.K, self.budget, self.cheats = bs.scenario_setup(ex)
+        if ex == "dodge":
+            self.data, self.nl, self.inputs, self.K, self.budget, self.cheats = dodge_setup()
+        else:
+            self.data, self.nl, self.inputs, self.K, self.budget, self.cheats = bs.scenario_setup(ex)
         self.store, self.nh2 = t2.oracle_for(self.data)
 
     def party(self, name, cheat, K=None):
@@ -550,8 +629,9 @@ def multi_scenarios(setups):
 
 
 def main():
-    setups = {"message": Setup("message", CASE_A), "large": Setup("large", CASE_B)}
-    games = [setups["message"], setups["large"]]
+    setups = {"message": Setup("message", CASE_A), "large": Setup("large", CASE_B),
+              "ram16": Setup("ram16", CASE_A), "rammix": Setup("rammix", CASE_B), "dodge": Setup("dodge", CASE_B)}
+    games = [setups[k] for k in ("message", "large", "ram16", "rammix", "dodge")]
     recs = []
     for sc in scenarios():
         name, gi, ccl, cch, stop, index = sc[:6]
@@ -570,7 +650,7 @@ def main():
         print(f"{name:44s} status={['', 'open', 'rejected', 'accepted'][status]:9s} moves={len(moves):3d} {ds}")
     path = os.path.join(HERE, "game_moves.bin")
     with open(path, "wb") as f:
-        f.write(b"TDG2" + bytes([len(games)]))
+        f.write(b"TDG3" + bytes([len(games)]))
         for st in games:
             b = st.budget
             f.write(u32(len(st.data)) + st.data + u32(b.gates) + u32(b.ext_words) + u32(b.chunks) + bytes([st.case]))

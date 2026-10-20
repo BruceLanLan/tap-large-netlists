@@ -10,9 +10,11 @@ import {TapLargeDisputeGame} from "../../src/game/TapLargeDisputeGame.sol";
 import {Upload} from "../utils/Upload.sol";
 import {Cases} from "../utils/Cases.sol";
 
-/// End-to-end disputes of the informative game (src/game/TapLargeDisputeGame.sol) on the two examples of assets/tap-draft-large-netlists/
-/// (the sequential ROM message example, TINY budget, K = 8, inputs of case (a): the game computes inputRoot; the
-/// large example, default budget, K = 2, inputs of case (b): a separate input provider publishes them).
+/// End-to-end disputes of the informative game (src/game/TapLargeDisputeGame.sol) on five files: the examples of
+/// assets/tap-draft-large-netlists/ `message` (sequential ROM, TINY budget, K = 8, inputs of case (a): the game
+/// computes inputRoot) and `large` (default budget, K = 2, case (b): a separate input provider publishes them);
+/// the files with RAM ports (MEM) `ram16` (TINY, K = 4, case (a)) and `rammix` (default, K = 4, case (b)); and the
+/// TAPBOY-8 cartridge of demo/cartridge, `dodge` (RAM ports, default budget, T = 651, K = 32, case (b)).
 ///
 /// The moves come from test/data/game_gen.py, which plays the honest and cheating parties of assets/tap-draft-large-netlists/bisect_sim.py
 /// against a Python mirror of the referee and records every transaction plus the predicted outcome. This test
@@ -84,9 +86,9 @@ contract E2ETest is Test {
     }
 
     TapLargeNetlistStoreOwned internal store;
-    TapLargeVerifier[2] internal verifiers;
-    TapLargeDisputeGame[2] internal games;
-    bytes32[2] internal nh2s;
+    TapLargeVerifier[] internal verifiers;
+    TapLargeDisputeGame[] internal games;
+    bytes32[] internal nh2s;
     address[5] internal actors;
     bytes internal data;
     Scenario[] internal scenarios;
@@ -98,9 +100,9 @@ contract E2ETest is Test {
     function setUp() public {
         data = vm.readFileBinary("test/data/game_moves.bin");
         Cases.Reader memory r = Cases.Reader(data, 0);
-        require(Cases.uintN(r, 4) == 0x54444732, "magic"); // "TDG2"
+        require(Cases.uintN(r, 4) == 0x54444733, "magic"); // "TDG3"
         uint256 ng = Cases.uintN(r, 1);
-        require(ng == 2, "two games");
+        require(ng == 5, "five games");
         store = new TapLargeNetlistStoreOwned(address(this));
         actors = [
             makeAddr("claimant"),
@@ -114,13 +116,13 @@ contract E2ETest is Test {
         }
         for (uint256 k; k < ng; ++k) {
             bytes memory file = Cases.bytesN(r, Cases.uintN(r, 4));
-            nh2s[k] = Upload.upload(store, file, true, 0);
+            nh2s.push(Upload.upload(store, file, true, 0));
             uint32 g = uint32(Cases.uintN(r, 4));
             uint32 e = uint32(Cases.uintN(r, 4));
             uint32 c = uint32(Cases.uintN(r, 4));
             bool caseB = Cases.uintN(r, 1) == 1;
-            verifiers[k] = new TapLargeVerifier(store, g, e, c);
-            games[k] = new TapLargeDisputeGame(
+            verifiers.push(new TapLargeVerifier(store, g, e, c));
+            games.push(new TapLargeDisputeGame(
                 TapLargeDisputeGame.Params({
                     store: store,
                     verifier: verifiers[k],
@@ -132,7 +134,7 @@ contract E2ETest is Test {
                     maxT: MAX_K * 2047,
                     inputProvider: caseB ? actors[3] : address(0)
                 })
-            );
+            ));
         }
 
         uint256 ns = Cases.uintN(r, 4);
@@ -257,6 +259,64 @@ contract E2ETest is Test {
 
     function test_oneBeatInterval_K1() public {
         _named("message/k1_c_rom_as_claimant");
+    }
+
+    // ------------------------------------------------------------------ files with RAM ports (MEM)
+
+    function test_ram_readLie_claimant() public {
+        _named("ram16/a_ram_read_as_claimant");
+    }
+
+    function test_ram_readLie_challenger() public {
+        _named("rammix/a_ram_read_as_challenger");
+    }
+
+    function test_ram_writeLie_claimant() public {
+        _named("rammix/b_ram_write_as_claimant");
+    }
+
+    function test_ram_writeLie_challenger() public {
+        _named("ram16/b_ram_write_as_challenger");
+    }
+
+    function test_ram_writeDataGateLie_claimant() public {
+        _named("ram16/c_write_data_as_claimant");
+    }
+
+    function test_ram_writeDataGateLie_challenger() public {
+        _named("rammix/c_write_data_as_challenger");
+    }
+
+    function test_ram_beat0WriteLie() public {
+        _named("ram16/e_beat0_write_as_claimant");
+    }
+
+    /// A claimant that cannot open the agreed stateRoot_t (§7.4) loses at its commitTuples move, without a call.
+    function test_ram_claimantWithoutOpeningLoses() public {
+        _named("ram16/i_no_opening_as_claimant");
+        _named("rammix/i_no_opening_as_claimant");
+    }
+
+    // ------------------------------------------------------------------ the TAPBOY-8 cartridge (RAM ports)
+
+    function test_cartridge_inflatedScoreByRamWrite() public {
+        _named("dodge/B_ram_write_as_claimant");
+    }
+
+    function test_cartridge_inflatedScoreByGate() public {
+        _named("dodge/C_alu_gate_as_claimant");
+    }
+
+    function test_cartridge_cheatingChallengerRamWrite() public {
+        _named("dodge/D_ram_write_as_challenger");
+    }
+
+    function test_cartridge_inflatedScoreByRamRead() public {
+        _named("dodge/E_ram_read_as_claimant");
+    }
+
+    function test_cartridge_cheatingChallengerRamRead() public {
+        _named("dodge/F_ram_read_as_challenger");
     }
 
     // ------------------------------------------------------------------ several challengers (§7.1)
@@ -539,8 +599,7 @@ contract E2ETest is Test {
             uint64 T = uint64(Cases.uintN(r, 8));
             bytes32 root = Cases.b32(r);
             bytes memory inputData = Cases.bytesN(r, Cases.uintN(r, 4));
-            bytes32 nh2 = g == games[0] ? nh2s[0] : nh2s[1];
-            return (abi.encodeCall(TapLargeDisputeGame.publishInputs, (nh2, T, root, inputData)), 0);
+            return (abi.encodeCall(TapLargeDisputeGame.publishInputs, (_nh2Of(g), T, root, inputData)), 0);
         }
         if (mtype == M_CLAIM) return (_claim(g, r), BOND);
         if (mtype == M_ACCEPT) {
@@ -604,8 +663,14 @@ contract E2ETest is Test {
             leaves[k] = Cases.b32(r);
         }
         bytes memory inputData = Cases.bytesN(r, Cases.uintN(r, 4));
-        bytes32 nh2 = g == games[0] ? nh2s[0] : nh2s[1];
-        return abi.encodeCall(TapLargeDisputeGame.claim, (nh2, T, K, inputRoot, leaves, inputData));
+        return abi.encodeCall(TapLargeDisputeGame.claim, (_nh2Of(g), T, K, inputRoot, leaves, inputData));
+    }
+
+    function _nh2Of(TapLargeDisputeGame g) internal view returns (bytes32) {
+        for (uint256 k; k < games.length; ++k) {
+            if (games[k] == g) return nh2s[k];
+        }
+        revert("game");
     }
 
     function _challenge(uint256 id, Cases.Reader memory r) internal pure returns (bytes memory) {
@@ -629,6 +694,8 @@ contract E2ETest is Test {
         x.ioT = Cases.b32(r);
         x.stateRootT1 = Cases.b32(r);
         x.ioT1 = Cases.b32(r);
+        x.latchRootT = Cases.b32(r);
+        x.memRootT = Cases.b32(r);
         for (uint256 k; k < 3; ++k) {
             x.roots[k] = Cases.b32(r);
         }

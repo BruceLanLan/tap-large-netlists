@@ -117,4 +117,30 @@ contract GasStoreTest is Test {
         console.log("all 456 putChunk: + 21000 per tx", t.total + t.totalCd + 456 * 21000);
         console.log("execution gas per stored byte (x100)", t.total * 100 / LEN);
     }
+
+    /// The TAPBOY-8 cartridge (demo/cartridge/build): its upload with RAM ports (one chunk) and with LATCH-based RAM
+    /// (build/legacy, seven chunks): beginLarge and every putChunk, execution gas, plus calldata and 21,000 per
+    /// transaction.
+    function test_gasCartridgeUpload() public {
+        string[2] memory paths = ["../demo/cartridge/build/dodge.tapnet2", "../demo/cartridge/build/legacy/dodge.tapnet2"];
+        for (uint256 k; k < 2; ++k) {
+            bytes memory file = vm.readFileBinary(paths[k]);
+            uint256 n = Upload.nChunks(file.length);
+            bytes32[][] memory lvs = Upload.levels(Upload.leaves(file));
+            (bytes32 h,) = Upload.hashOf(file);
+            TapLargeNetlistStoreOwned st = new TapLargeNetlistStoreOwned(address(this));
+            st.addKnown(h);
+            StoreMeter m = new StoreMeter();
+            bytes memory cd0 = abi.encodeCall(ITapLargeNetlistStore.beginLarge, (h, uint64(file.length), lvs[lvs.length - 1][0]));
+            vm.cool(address(st));
+            (uint256 g0, bool ok0) = m.measure(address(st), cd0);
+            assertTrue(ok0);
+            Stats memory t = _uploadAll(st, m, file, lvs, h, n);
+            assertTrue(st.largeStored(h));
+            console.log(paths[k]);
+            console.log("    bytes %d, chunks %d", file.length, n);
+            console.log("    execution gas: beginLarge %d, putChunk total %d", g0, t.total);
+            console.log("    transactions incl. calldata and 21,000 each: %d", g0 + _cdGas(cd0) + t.total + t.totalCd + (n + 1) * 21000);
+        }
+    }
 }

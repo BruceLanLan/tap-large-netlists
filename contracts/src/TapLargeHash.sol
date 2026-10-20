@@ -43,6 +43,57 @@ library TapLargeHash {
         return sha256(abi.encodePacked(bytes2(0x0700), uint32(j), byteOffset, firstSignal, latchOrdinal, p, d));
     }
 
+    /// segLeaf(j, seg) of §4.5 for a file with MEM: M is appended to the preimage (181 bytes).
+    function segLeafM(
+        uint256 j,
+        uint64 byteOffset,
+        uint32 firstSignal,
+        uint32 latchOrdinal,
+        bytes32 p,
+        bytes32 d,
+        bytes32 m
+    ) internal pure returns (bytes32) {
+        return sha256(abi.encodePacked(bytes2(0x0700), uint32(j), byteOffset, firstSignal, latchOrdinal, p, d, m));
+    }
+
+    /// segLeaf (hasMem = false) or segLeafM (hasMem = true) of §4.5, in one compact routine (used by the game).
+    function segLeafOf(
+        bool hasMem,
+        uint256 j,
+        uint64 byteOffset,
+        uint32 firstSignal,
+        uint32 latchOrdinal,
+        bytes32 p,
+        bytes32 d,
+        bytes32 m
+    ) internal view returns (bytes32 h) {
+        assembly ("memory-safe") {
+            let q := mload(0x40)
+            // 0x07 ‖ 0x00 ‖ u32 j ‖ u64 byteOffset ‖ u32 firstSignal ‖ u32 latchOrdinal: 22 bytes
+            let w := or(shl(240, 0x0700), shl(208, and(j, 0xffffffff)))
+            w := or(w, shl(144, and(byteOffset, 0xffffffffffffffff)))
+            w := or(w, or(shl(112, and(firstSignal, 0xffffffff)), shl(80, and(latchOrdinal, 0xffffffff))))
+            mstore(q, w)
+            mstore(add(q, 22), p)
+            mstore(add(q, 54), d)
+            mstore(add(q, 86), m)
+            let n := 86
+            if hasMem { n := 118 }
+            if iszero(staticcall(gas(), 0x02, q, n, 0x00, 0x20)) { revert(0, 0) }
+            h := mload(0x00)
+        }
+    }
+
+    /// memLeaf(word) = SHA-256(0x0B ‖ word): leaf of the memory tree (§4.6), without an index.
+    function memLeaf(bytes32 word) internal pure returns (bytes32) {
+        return sha256(abi.encodePacked(bytes1(0x0b), word));
+    }
+
+    /// stateRoot of a file with MEM after beat 0: SHA-256(0x0C ‖ latchRoot ‖ memRoot) (§4.6).
+    function memStateRoot(bytes32 latchRoot, bytes32 memRoot) internal pure returns (bytes32) {
+        return sha256(abi.encodePacked(bytes1(0x0c), latchRoot, memRoot));
+    }
+
     /// endLeaf(kind, k, (ordinal, root)) of §4.5, kind 1 (outputs) or 2 (state).
     function endLeaf(uint8 kind, uint256 k, uint32 ordinal, bytes32 root) internal pure returns (bytes32) {
         return sha256(abi.encodePacked(bytes1(0x07), kind, uint32(k), ordinal, root));

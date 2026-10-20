@@ -32,7 +32,7 @@ contract DifferentialTest is Test {
 
     function _run(Cases.Case memory c) internal view returns (bool) {
         if (c.kind == 0) {
-            return verifier.verifySegment(nh2s[c.fileIdx], c.stateRoot, c.a, c.b, c.witness, c.budget);
+            return verifier.verifySegment(nh2s[c.fileIdx], c.latchRoot, c.memRoot, c.a, c.b, c.witness, c.budget);
         }
         return verifier.verifyBeatEnd(nh2s[c.fileIdx], c.nOut, c.a, c.ea, c.eb, c.witness);
     }

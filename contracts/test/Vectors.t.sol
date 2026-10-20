@@ -14,20 +14,22 @@ contract VerifierHarness is TapLargeVerifier {
 
     function verifySegmentReads(
         bytes32 nh2,
-        bytes32 stateRoot,
+        bytes32 latchRoot,
+        bytes32 memRoot,
         SegTuple calldata a,
         SegTuple calldata b,
         bytes calldata witness,
         Budget calldata budget
     ) external view returns (bool, uint256) {
-        return _verifySegment(nh2, stateRoot, a, b, witness, budget);
+        return _verifySegment(nh2, latchRoot, memRoot, a, b, witness, budget);
     }
 }
 
 /// Replays every verify_segment, beat-end and store vector of assets/tap-draft-large-netlists/vectors.json and asserts the same
 /// accept/reject as the Python reference.
 contract VectorsTest is Test {
-    bytes32 internal constant VECTORS_SHA256 = 0x902afb750facf46f389d4ca20463cf23a004c98d319c4294c4ab73205b096015;
+    bytes32 internal constant ZERO_MEM = 0x073f71c2a5b9f99ff7828db2196e3c833ca70e5225e20912d7dcf150c165dcff;
+    bytes32 internal constant VECTORS_SHA256 = 0x3008acc10a1d0694763a1c9f7a59990d172ba70472f09aa27021edf89b93a753;
     string internal json;
 
     TapLargeNetlistStoreOwned internal storeFile;
@@ -37,7 +39,7 @@ contract VectorsTest is Test {
     VerifierHarness internal vNone;
     VerifierHarness internal vChunk0;
 
-    string[4] internal names = ["sbox", "mul4", "message", "large"];
+    string[7] internal names = ["sbox", "mul4", "message", "large", "ram16", "rammix", "romports"];
     mapping(bytes32 => bytes32) internal nh2Of; // keccak(name) => netlistHash2
 
     function setUp() public {
@@ -45,7 +47,7 @@ contract VectorsTest is Test {
         storeFile = new TapLargeNetlistStoreOwned(address(this));
         storeNone = new TapLargeNetlistStoreOwned(address(this));
         storeChunk0 = new TapLargeNetlistStoreOwned(address(this));
-        for (uint256 i; i < 4; ++i) {
+        for (uint256 i; i < names.length; ++i) {
             bytes memory file = _file(names[i]);
             bytes32 h = Upload.upload(storeFile, file, true, 0);
             Upload.upload(storeChunk0, file, false, 0);
@@ -84,6 +86,9 @@ contract VectorsTest is Test {
         t.latchOrdinal = uint32(_u(string.concat(key, "[2]")));
         t.p = _b32(string.concat(key, "[3]"));
         t.d = _b32(string.concat(key, "[4]"));
+        // 6 elements (with M) for a file with MEM, else 5 (M = ZERO_MEM)
+        string memory km = string.concat(key, "[5]");
+        t.m = vm.keyExistsJson(json, km) ? _b32(km) : ZERO_MEM;
     }
 
     function _end(string memory key) internal view returns (TapLargeVerifier.EndTuple memory t) {
@@ -110,7 +115,7 @@ contract VectorsTest is Test {
     }
 
     function test_files() public view {
-        for (uint256 i; i < 4; ++i) {
+        for (uint256 i; i < names.length; ++i) {
             string memory k = string.concat(".files.", names[i]);
             bytes memory file = _file(names[i]);
             (bytes32 nh2, bytes32 root) = Upload.hashOf(file);
@@ -160,7 +165,8 @@ contract VectorsTest is Test {
             bool expect = vm.parseJsonBool(json, string.concat(k, ".expect"));
             (bool got, uint256 reads) = _verifier(_str(string.concat(k, ".oracle"))).verifySegmentReads(
                 nh2Of[keccak256(bytes(_str(string.concat(k, ".example"))))],
-                _b32(string.concat(k, ".stateRoot")),
+                _b32(string.concat(k, ".latchRoot")),
+                _b32(string.concat(k, ".memRoot")),
                 _seg(string.concat(k, ".a")),
                 _seg(string.concat(k, ".b")),
                 _hex(string.concat(k, ".witnessHex")),
@@ -175,8 +181,8 @@ contract VectorsTest is Test {
             }
             ++total;
         }
-        assertEq(total, 79);
-        assertEq(positives, 27);
+        assertEq(total, 177);
+        assertEq(positives, 63);
     }
 
     function test_verifyBeatEndVectors() public view {
@@ -198,8 +204,8 @@ contract VectorsTest is Test {
             if (expect) ++positives;
             ++total;
         }
-        assertEq(total, 44);
-        assertEq(positives, 6);
+        assertEq(total, 60);
+        assertEq(positives, 10);
     }
 
     function _errSel(string memory name) internal pure returns (bytes4) {
@@ -330,6 +336,135 @@ contract VectorsTest is Test {
             assertEq(TapLargeHash.inputLeaf(uint64(t), vm.parseBytes(_hexPrefixed(packed[t]))), il[t]);
         }
         assertEq(TapLargeHash.merkleRoot(il), _b32(".checkpoints.inputs.inputRoot"));
+    }
+
+    /// The memory constants (§4.6): Z_0 … Z_24 and ZERO_MEM, the combined state root, and the segment leaves with
+    /// M of the files with MEM (tuplesRoot of both segmentations, beat-end binding), and without M otherwise.
+    function test_memoryVectors() public view {
+        bytes32[] memory z = vm.parseJsonBytes32Array(json, ".meta.zeroSubtrees");
+        assertEq(z.length, 25);
+        bytes32 h = TapLargeHash.memLeaf(bytes32(0));
+        for (uint256 k; k < 25; ++k) {
+            assertEq(h, z[k]);
+            h = TapLargeHash.node(h, h);
+        }
+        assertEq(z[24], _b32(".meta.zeroMem"));
+        assertEq(vFile.ZERO_MEM(), z[24]);
+        string[4] memory files = ["ram16", "rammix", "message", "mul4"];
+        string[2] memory budgets = ["tiny", "default"];
+        for (uint256 f; f < files.length; ++f) {
+            bool mem = f < 2;
+            string memory sk = string.concat(".segmentations.", files[f]);
+            for (uint256 bi; bi < 2; ++bi) {
+                string memory tk = string.concat(sk, ".", budgets[bi], ".tuples");
+                uint256 n;
+                while (vm.keyExistsJson(json, string.concat(tk, "[", vm.toString(n), "]"))) ++n;
+                bytes32[] memory leaves = new bytes32[](n);
+                for (uint256 j; j < n; ++j) {
+                    TapLargeVerifier.SegTuple memory t = _seg(string.concat(tk, "[", vm.toString(j), "]"));
+                    leaves[j] = TapLargeHash.segLeafOf(mem, j, t.byteOffset, t.firstSignal, t.latchOrdinal, t.p, t.d, t.m);
+                    bytes32 want = mem
+                        ? TapLargeHash.segLeafM(j, t.byteOffset, t.firstSignal, t.latchOrdinal, t.p, t.d, t.m)
+                        : TapLargeHash.segLeaf(j, t.byteOffset, t.firstSignal, t.latchOrdinal, t.p, t.d);
+                    assertEq(leaves[j], want);
+                }
+                assertEq(TapLargeHash.merkleRoot(leaves), _b32(string.concat(sk, ".", budgets[bi], ".tuplesRoot")));
+            }
+            if (!mem) continue;
+            string memory ck = string.concat(sk, ".context");
+            assertEq(
+                TapLargeHash.memStateRoot(_b32(string.concat(ck, ".latchRoot")), _b32(string.concat(ck, ".memRoot"))),
+                _b32(string.concat(ck, ".stateRoot"))
+            );
+            string memory be = string.concat(sk, ".beatEnd");
+            assertEq(_b32(string.concat(be, ".segM[5]")), _b32(string.concat(be, ".memRootNext")));
+            assertEq(
+                TapLargeHash.memStateRoot(_b32(string.concat(be, ".stateListRoot")), _b32(string.concat(be, ".memRootNext"))),
+                _b32(string.concat(be, ".stateRootNext"))
+            );
+        }
+    }
+
+    /// Offset of the memory part of a segment witness (§6.3): after the state multiproof.
+    function _memOffset(bytes memory w) internal pure returns (uint256 p) {
+        p = 1 + 32 * uint8(w[0]);
+        p += uint8(w[p]) == 1 ? 33 : 1;
+        p += 2 + 36 * (uint256(uint8(w[p])) << 8 | uint8(w[p + 1]));
+        p += 2 + 32 * (uint256(uint8(w[p])) << 8 | uint8(w[p + 1]));
+        p += 1 + 32 * uint8(w[p]);
+        p += uint8(w[p]) == 1 ? 33 : 1;
+        p += 4;
+        p += 2 + 36 * (uint256(uint8(w[p])) << 8 | uint8(w[p + 1]));
+        p += 2 + 32 * (uint256(uint8(w[p])) << 8 | uint8(w[p + 1]));
+    }
+
+    struct Step {
+        bytes32 nh2;
+        bytes32 lr;
+        bytes32 mr;
+        TapLargeVerifier.SegTuple a;
+        TapLargeVerifier.SegTuple b;
+        TapLargeVerifier.Budget bud;
+    }
+
+    function _step(string memory k) internal view returns (Step memory st, bytes memory w) {
+        st.nh2 = nh2Of[keccak256(bytes(_str(string.concat(k, ".example"))))];
+        st.lr = _b32(string.concat(k, ".latchRoot"));
+        st.mr = _b32(string.concat(k, ".memRoot"));
+        st.a = _seg(string.concat(k, ".a"));
+        st.b = _seg(string.concat(k, ".b"));
+        st.bud = TapLargeVerifier.Budget(
+            uint32(_u(string.concat(k, ".budgetUsed.gates"))),
+            uint32(_u(string.concat(k, ".budgetUsed.ext_words"))),
+            uint32(_u(string.concat(k, ".budgetUsed.chunks")))
+        );
+        w = _hex(string.concat(k, ".witnessHex"));
+    }
+
+    function _vs(Step memory st, bytes memory w) internal view returns (bool) {
+        return vFile.verifySegment(st.nh2, st.lr, st.mr, st.a, st.b, w, st.bud);
+    }
+
+    /// The first access of the memory part at q with its lowest zero sibling spelled out (mask bit cleared).
+    function _spellOutZero(bytes memory w, uint256 q) internal view returns (bytes memory bad) {
+        uint256 mask = uint32(bytes4(bytes.concat(w[q + 34], w[q + 35], w[q + 36], w[q + 37])));
+        uint256 hh;
+        while ((mask >> hh) & 1 == 0) ++hh;
+        bytes32 zh = TapLargeHash.memLeaf(bytes32(0));
+        uint256 at = q + 2 + 36;
+        for (uint256 i; i < hh; ++i) {
+            zh = TapLargeHash.node(zh, zh);
+            if ((mask >> i) & 1 == 0) at += 32;
+        }
+        bytes memory head = new bytes(at);
+        for (uint256 i; i < at; ++i) head[i] = w[i];
+        bytes memory tail = new bytes(w.length - at);
+        for (uint256 i; i < tail.length; ++i) tail[i] = w[at + i];
+        bad = bytes.concat(head, zh, tail);
+        uint256 m2 = mask & ~(uint256(1) << hh);
+        bad[q + 34] = bytes1(uint8(m2 >> 24));
+        bad[q + 35] = bytes1(uint8(m2 >> 16));
+        bad[q + 36] = bytes1(uint8(m2 >> 8));
+        bad[q + 37] = bytes1(uint8(m2));
+    }
+
+    /// The memory encoding rules of §6.3 on an honest step with one read proof (vector 105): a mask bit above 23,
+    /// a spelled-out zero sibling and a trailing byte each make the call fail; and an empty memory part appended
+    /// to the honest witness of the next step (vector 106, no RAM access) makes it fail.
+    function test_memoryEncodingRules() public view {
+        assertEq(_str(".verifySegment[105].case"), "honest (1 RAM read proofs, 0 RAM write proofs)");
+        (Step memory st, bytes memory w) = _step(".verifySegment[105]");
+        assertTrue(_vs(st, w));
+        uint256 q = _memOffset(w);
+        assertEq(uint8(w[q + 1]), 1); // nRead = 1
+        bytes memory bad = bytes.concat(w);
+        bad[q + 2 + 32] = bytes1(uint8(bad[q + 2 + 32]) | 1); // mask bit 24
+        assertFalse(_vs(st, bad));
+        assertFalse(_vs(st, bytes.concat(w, hex"00")));
+        assertFalse(_vs(st, _spellOutZero(w, q)));
+        (st, w) = _step(".verifySegment[106]");
+        assertTrue(_vs(st, w));
+        assertFalse(_vs(st, bytes.concat(w, hex"00000000")));
     }
 
     function _hexPrefixed(string memory s) internal pure returns (string memory) {

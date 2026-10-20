@@ -30,6 +30,7 @@ contract MockOracle {
 }
 
 contract UnitTest is Test {
+    bytes32 internal constant ZM = 0x073f71c2a5b9f99ff7828db2196e3c833ca70e5225e20912d7dcf150c165dcff; // ZERO_MEM
     TapLargeNetlistStoreOwned internal st;
 
     function setUp() public {
@@ -137,8 +138,8 @@ contract UnitTest is Test {
         returns (TapLargeVerifier.SegTuple memory a, TapLargeVerifier.SegTuple memory b, bytes memory w)
     {
         bytes32 word = bytes32(uint256(0x06) << 248); // bits 1 and 2
-        a = TapLargeVerifier.SegTuple(16, 3, 0, TapLargeHash.wordLeaf(0x04, 0, word), bytes32(0));
-        b = TapLargeVerifier.SegTuple(23, 4, 0, TapLargeHash.wordLeaf(0x04, 0, word), bytes32(0));
+        a = TapLargeVerifier.SegTuple(16, 3, 0, TapLargeHash.wordLeaf(0x04, 0, word), bytes32(0), ZM);
+        b = TapLargeVerifier.SegTuple(23, 4, 0, TapLargeHash.wordLeaf(0x04, 0, word), bytes32(0), ZM);
         // frontier(P): 0 peaks, partial word; words(P) 0; hashes 0; frontier(D): 0 peaks, no partial;
         // stateSize 0; words 0; hashes 0
         w = bytes.concat(hex"0001", word, hex"0000", hex"0000", hex"0000", hex"00000000", hex"0000", hex"0000");
@@ -150,19 +151,19 @@ contract UnitTest is Test {
         TapLargeVerifier v = new TapLargeVerifier(st, 6000, 256, 16);
         (TapLargeVerifier.SegTuple memory a, TapLargeVerifier.SegTuple memory b, bytes memory w) = _case();
         TapLargeVerifier.Budget memory bud = TapLargeVerifier.Budget(6000, 256, 16);
-        assertTrue(v.verifySegment(h, bytes32(0), a, b, w, bud));
+        assertTrue(v.verifySegment(h, bytes32(0), ZM, a, b, w, bud));
         // wrong claimed value of signal 3
         b.p = TapLargeHash.wordLeaf(0x04, 0, bytes32(uint256(0x0e) << 248));
-        assertFalse(v.verifySegment(h, bytes32(0), a, b, w, bud));
+        assertFalse(v.verifySegment(h, bytes32(0), ZM, a, b, w, bud));
         // byteOffset below the header / at the end of the file
         (a, b,) = _case();
         a.byteOffset = 15;
-        assertFalse(v.verifySegment(h, bytes32(0), a, b, w, bud));
+        assertFalse(v.verifySegment(h, bytes32(0), ZM, a, b, w, bud));
         a.byteOffset = 23;
-        assertFalse(v.verifySegment(h, bytes32(0), a, b, w, bud));
+        assertFalse(v.verifySegment(h, bytes32(0), ZM, a, b, w, bud));
         // not stored
         (a, b,) = _case();
-        assertFalse(v.verifySegment(keccak256("unknown"), bytes32(0), a, b, w, bud));
+        assertFalse(v.verifySegment(keccak256("unknown"), bytes32(0), ZM, a, b, w, bud));
     }
 
     function test_oracleChecks() public {
@@ -172,15 +173,15 @@ contract UnitTest is Test {
         TapLargeVerifier.Budget memory bud = TapLargeVerifier.Budget(6000, 256, 16);
         bytes memory file = _file();
         o.set(23, true, file);
-        assertTrue(v.verifySegment(bytes32(0), bytes32(0), a, b, w, bud));
+        assertTrue(v.verifySegment(bytes32(0), bytes32(0), ZM, a, b, w, bud));
         o.set(23, false, file); // largeStored false
-        assertFalse(v.verifySegment(bytes32(0), bytes32(0), a, b, w, bud));
+        assertFalse(v.verifySegment(bytes32(0), bytes32(0), ZM, a, b, w, bud));
         o.set(67108865, true, file); // fileLen above 64 MiB
-        assertFalse(v.verifySegment(bytes32(0), bytes32(0), a, b, w, bud));
+        assertFalse(v.verifySegment(bytes32(0), bytes32(0), ZM, a, b, w, bud));
         o.set(23, true, bytes.concat(file, hex"00")); // chunk of the wrong length
-        assertFalse(v.verifySegment(bytes32(0), bytes32(0), a, b, w, bud));
+        assertFalse(v.verifySegment(bytes32(0), bytes32(0), ZM, a, b, w, bud));
         o.set(24, true, bytes.concat(file, hex"00")); // a longer file: the record after the NAND is truncated
-        assertFalse(v.verifySegment(bytes32(0), bytes32(0), a, b, w, bud));
+        assertFalse(v.verifySegment(bytes32(0), bytes32(0), ZM, a, b, w, bud));
     }
 
     function test_witnessEncodingFailures() public {
@@ -189,16 +190,16 @@ contract UnitTest is Test {
         (TapLargeVerifier.SegTuple memory a, TapLargeVerifier.SegTuple memory b, bytes memory w) = _case();
         TapLargeVerifier.Budget memory bud = TapLargeVerifier.Budget(6000, 256, 16);
         bytes memory bad = bytes.concat(w, hex"00"); // trailing byte
-        assertFalse(v.verifySegment(h, bytes32(0), a, b, bad, bud));
+        assertFalse(v.verifySegment(h, bytes32(0), ZM, a, b, bad, bud));
         bad = bytes.concat(w);
         bad[1] = 0x02; // flag other than 0 or 1
-        assertFalse(v.verifySegment(h, bytes32(0), a, b, bad, bud));
+        assertFalse(v.verifySegment(h, bytes32(0), ZM, a, b, bad, bud));
         bad = new bytes(w.length - 1); // truncated
         for (uint256 i; i < bad.length; ++i) bad[i] = w[i];
-        assertFalse(v.verifySegment(h, bytes32(0), a, b, bad, bud));
+        assertFalse(v.verifySegment(h, bytes32(0), ZM, a, b, bad, bud));
         // EMPTY stateRoot with a nonzero stateSize
         bad = bytes.concat(w);
         bad[bad.length - 5] = 0x01;
-        assertFalse(v.verifySegment(h, bytes32(0), a, b, bad, bud));
+        assertFalse(v.verifySegment(h, bytes32(0), ZM, a, b, bad, bud));
     }
 }

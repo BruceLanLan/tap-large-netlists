@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {ITapLargeNetlistStore} from "../ITapLargeNetlistStore.sol";
 import {TapLargeVerifier} from "../TapLargeVerifier.sol";
 import {TapLargeHash} from "../TapLargeHash.sol";
+import {TapLargeGameLib} from "./TapLargeGameLib.sol";
 
 /// @title Informative reference dispute game for the TAP "Large Netlists and Verifiable Execution" (§7)
 /// @notice A minimal bisection game over the evaluation of a tapnet/2 file. It shows one way to wire the data and
@@ -53,9 +54,11 @@ import {TapLargeHash} from "../TapLargeHash.sol";
 ///           commitBeats    claimant, then challenger: root of the beat leaves of [t_{i-1}, t_i] (size fixed by
 ///                          the game) + proofs that it starts at L_{i-1} and ends at the party's own leaf (§7.3).
 ///           revealBeat     claimant, then challenger, per round: the leaf at the midpoint the game picks (§7.3).
-///           commitTuples   claimant (with the inputs of beat t against inputRoot), then challenger: the three
-///                          tuple lists of beat t (roots and lengths) with their first and last tuples; reveal
-///                          checks 1–5 of §7.4; then the game picks the first list whose last tuples differ.
+///           commitTuples   claimant (with the inputs of beat t against inputRoot and, for a file with MEM and
+///                          stateRoot_t ≠ EMPTY, the opening (latchRoot_t, memRoot_t) of stateRoot_t), then
+///                          challenger: the three tuple lists of beat t (roots and lengths) with their first and
+///                          last tuples; reveal checks 1–5 of §7.4; then the game picks the first list whose last
+///                          tuples differ.
 ///           revealSeg /    claimant, then challenger: tuple h = min(lastA, lastB); then bisection rounds; or, if
 ///           revealEnd      the tuples at h are equal, the longer list's party reveals tuple h + 1 (§7.4).
 ///           proveSegment / the prover (the claimant, or the longer list's party): exactly one verifier call,
@@ -67,6 +70,11 @@ import {TapLargeHash} from "../TapLargeHash.sol";
 ///         not verify makes that party lose at once (§7.1). Values a party must merely re-pass and that the game
 ///         already holds as hashes (beat leaf preimages, the agreed tuples at the final call) are checked with a
 ///         revert: a party that cannot supply them simply times out.
+///
+///         Files with RAM ports (MEM flag, §1.1, read from chunk 0 when the claim is made): segment leaves hash
+///         M, check 5 compares stateRoot_{t+1} with SHA-256(0x0C ‖ last state root ‖ last M), and the final call
+///         passes the two roots of the opening. Tree computations over calldata lists live in TapLargeGameLib
+///         (an external library), which keeps this contract below the EIP-170 code size limit.
 ///
 ///         Events. `Challenged` is emitted for every challenge, also one that loses in the same transaction (out
 ///         of range index, failed proof, equal leaves); `Resolved` then follows in that transaction. `Resolved`
@@ -116,7 +124,8 @@ contract TapLargeDisputeGame {
         StateMismatch, // level 3, check 5
         BadLastTuple, // level 3: the proof of a last tuple failed
         VerifierTrue, // final call returned true: the prover wins
-        VerifierFalse // final call returned false: the prover loses
+        VerifierFalse, // final call returned false: the prover loses
+        BadOpening // level 3, file with MEM: the claimant's (latchRoot_t, memRoot_t) does not open stateRoot_t
     }
 
     /// Constructor parameters (one struct, to keep the constructor readable).
@@ -146,6 +155,7 @@ contract TapLargeDisputeGame {
         bytes32 inputRoot;
         bytes32 checkpointRoot;
         Status status;
+        bool hasMem; // MEM flag: bit 0 of byte 7 of chunk 0, read when the claim is made (§7.1)
         uint64 windowEnd; // last timestamp at which a challenge is accepted
         uint32 openDisputes;
         address rejectedBy; // the challenger that won (Rejected only)
@@ -172,7 +182,8 @@ contract TapLargeDisputeGame {
         bytes32[2] roots; // level 2: beat roots; level 3: roots of the picked list
         uint32[2] sizes; // level 3: lengths of the picked list
         // level 3, recorded at the claimant's commitTuples
-        bytes32 stateRootT; // agreed stateRoot_t (argument of verifySegment)
+        bytes32 latchRootT; // latchRoot_t and memRoot_t of the agreed stateRoot_t (arguments of verifySegment)
+        bytes32 memRootT;
         bytes32 seg0Leaf; // segLeaf(0, public seg_0 of beat t)
         bytes32[3] clRoots; // claimant's three list roots
         uint32[3] clLengths;
@@ -202,6 +213,10 @@ contract TapLargeDisputeGame {
         bytes32 ioT;
         bytes32 stateRootT1; // the party's own leaf at t + 1
         bytes32 ioT1;
+        // the claimant's opening (latchRoot_t, memRoot_t) of stateRoot_t, for a file with MEM and stateRoot_t ≠
+        // EMPTY (§7.4); ignored otherwise (the game then uses (stateRoot_t, ZERO_MEM)) and in the challenger's move
+        bytes32 latchRootT;
+        bytes32 memRootT;
         bytes32[3] roots; // segment, output, state
         uint32[3] lengths;
         TapLargeVerifier.SegTuple segLast;
@@ -220,6 +235,7 @@ contract TapLargeDisputeGame {
     uint256 public constant MAX_CHECKPOINTS = 2048; // §7.1 RECOMMENDED bound: one transaction
     uint256 internal constant HEADER_LEN = 16;
     bytes32 internal constant EMPTY = bytes32(0);
+    bytes32 internal constant ZERO_MEM = 0x073f71c2a5b9f99ff7828db2196e3c833ca70e5225e20912d7dcf150c165dcff;
     uint8 internal constant KIND_SEG = 0;
     uint8 internal constant KIND_OUT = 1;
     uint8 internal constant KIND_STATE = 2;
@@ -345,7 +361,7 @@ contract TapLargeDisputeGame {
         (c.fileLen, c.nIn, c.nOut,,) = store.largeInfo(netlistHash2);
         if (inputProvider == address(0)) {
             // case (a): inputRoot computed by the game from the published inputs
-            if (_inputRootOf(T, c.nIn, inputData) != inputRoot) revert InputRootMismatch();
+            if (TapLargeGameLib.inputRoot(T, c.nIn, inputData) != inputRoot) revert InputRootMismatch();
         } else {
             // case (b): a published triple, and the provider is never the claimant
             if (msg.sender == inputProvider) revert ProviderCannotClaim();
@@ -358,8 +374,9 @@ contract TapLargeDisputeGame {
         c.nCp = uint32(n); // n ≤ MAX_CHECKPOINTS
         (c.budget.gates, c.budget.extWords, c.budget.chunks) = verifier.segmentBudget();
         c.netlistHash2 = netlistHash2;
+        c.hasMem = _memFlag(netlistHash2);
         c.inputRoot = inputRoot;
-        c.checkpointRoot = TapLargeHash.merkleRoot(leaves);
+        c.checkpointRoot = TapLargeGameLib.checkpointRoot(leaves);
         c.status = Status.Open;
         c.windowEnd = uint64(block.timestamp) + challengeWindow;
         emit Claimed(id, msg.sender, netlistHash2, T, K, inputRoot, c.checkpointRoot, c.windowEnd);
@@ -499,8 +516,19 @@ contract TapLargeDisputeGame {
             if (!_inputsOk(c, t, packedInputs, inputProof)) {
                 return _resolve(id, challenger, Role.Challenger, Reason.BadInputs);
             }
-            d.seg0Leaf = TapLargeHash.segLeaf(0, uint64(HEADER_LEN), 2 + c.nIn, 0, _seg0P(packedInputs, c.nIn), EMPTY);
-            d.stateRootT = x.stateRootT;
+            // §7.4: the roots of the final call; a file with MEM opens stateRoot_t ≠ EMPTY
+            bytes32 mr = ZERO_MEM;
+            d.latchRootT = x.stateRootT;
+            if (c.hasMem && x.stateRootT != EMPTY) {
+                if (TapLargeHash.memStateRoot(x.latchRootT, x.memRootT) != x.stateRootT) {
+                    return _resolve(id, challenger, Role.Challenger, Reason.BadOpening);
+                }
+                d.latchRootT = x.latchRootT;
+                mr = x.memRootT;
+            }
+            d.memRootT = mr;
+            bytes32 p0 = TapLargeGameLib.seg0P(packedInputs, c.nIn);
+            d.seg0Leaf = TapLargeHash.segLeafOf(c.hasMem, 0, uint64(HEADER_LEN), 2 + c.nIn, 0, p0, EMPTY, mr);
         }
         Reason r = _revealChecks(c, d, x);
         if (r != Reason.None) return _resolve(id, challenger, _other(who), r);
@@ -511,8 +539,8 @@ contract TapLargeDisputeGame {
             d.clRoots = x.roots;
             d.clLengths = x.lengths;
             d.clLastHash = lastHash;
-            d.segMIndex = x.lengths[0] - 1; // lengths[0] ≥ 1 after _revealChecks
-            d.segMLeaf = _segLeaf(x.lengths[0] - 1, x.segLast);
+            d.segMIndex = x.lengths[0] - 1; // lengths[0] ≥ 1 after the reveal checks
+            d.segMLeaf = _segLeaf(c, x.lengths[0] - 1, x.segLast);
             return _next(c, d, Phase.TupleCommit, Role.Challenger);
         }
 
@@ -540,7 +568,7 @@ contract TapLargeDisputeGame {
     ) external {
         Dispute storage d = _disputes[id][challenger];
         if (d.kind != KIND_SEG) revert WrongListKind();
-        _revealTuple(id, challenger, _segLeaf(d.ask, s), proof);
+        _revealTuple(id, challenger, _segLeaf(_claims[id], d.ask, s), proof);
     }
 
     /// @notice Reveal tuple `ask` of the picked output or state list.
@@ -609,7 +637,8 @@ contract TapLargeDisputeGame {
 
     // ------------------------------------------------------------------ the final call
 
-    /// @notice Final call for the segment list: verifySegment(netlistHash2, stateRoot_t, a, b, witness, budget).
+    /// @notice Final call for the segment list: verifySegment(netlistHash2, latchRoot_t, memRoot_t, a, b, witness,
+    ///         budget), with the two roots recorded at the claimant's commitTuples.
     ///         `a` and `b` must be the agreed tuple at lo and the prover's tuple at hi (checked by their leaves).
     function proveSegment(
         uint256 id,
@@ -622,8 +651,8 @@ contract TapLargeDisputeGame {
         Dispute storage d = _disputes[id][challenger];
         Role who = _enter(id, challenger, d, Phase.Prove);
         if (d.kind != KIND_SEG) revert WrongListKind();
-        if (_segLeaf(d.lo, a) != d.loLeaf || _segLeaf(d.hi, b) != d.hiLeaf[uint8(who)]) revert BadPreimage();
-        bool ok = verifier.verifySegment(c.netlistHash2, d.stateRootT, a, b, witness, c.budget);
+        if (_segLeaf(c, d.lo, a) != d.loLeaf || _segLeaf(c, d.hi, b) != d.hiLeaf[uint8(who)]) revert BadPreimage();
+        bool ok = verifier.verifySegment(c.netlistHash2, d.latchRootT, d.memRootT, a, b, witness, c.budget);
         emit VerifierCalled(id, challenger, KIND_SEG, d.hi, ok);
         _resolve(id, challenger, ok ? who : _other(who), ok ? Reason.VerifierTrue : Reason.VerifierFalse);
     }
@@ -645,7 +674,7 @@ contract TapLargeDisputeGame {
         uint8 k = d.kind;
         if (k == KIND_SEG) revert WrongListKind();
         if (
-            _segLeaf(d.segMIndex, segM) != d.segMLeaf || TapLargeHash.endLeaf(k, d.lo, a.ordinal, a.root) != d.loLeaf
+            _segLeaf(c, d.segMIndex, segM) != d.segMLeaf || TapLargeHash.endLeaf(k, d.lo, a.ordinal, a.root) != d.loLeaf
                 || TapLargeHash.endLeaf(k, d.hi, b.ordinal, b.root) != d.hiLeaf[uint8(who)]
         ) revert BadPreimage();
         if (witness.length == 0 || uint8(witness[0]) != k) revert WrongListKind();
@@ -784,8 +813,32 @@ contract TapLargeDisputeGame {
         return k + 1 == c.nCp ? c.T : uint64(k * c.K);
     }
 
-    function _segLeaf(uint256 j, TapLargeVerifier.SegTuple calldata s) internal pure returns (bytes32) {
-        return TapLargeHash.segLeaf(j, s.byteOffset, s.firstSignal, s.latchOrdinal, s.p, s.d);
+    /// segLeaf of §4.5: M is hashed only for a file with MEM.
+    function _segLeaf(Claim storage c, uint256 j, TapLargeVerifier.SegTuple calldata s)
+        internal
+        view
+        returns (bytes32)
+    {
+        return TapLargeHash.segLeafOf(c.hasMem, j, s.byteOffset, s.firstSignal, s.latchOrdinal, s.p, s.d, s.m);
+    }
+
+    /// The MEM flag of a stored file: bit 0 of byte 7 of chunk 0 (§1.1, §7.1), read from largeChunk(nh2, 0)
+    /// without copying the chunk.
+    function _memFlag(bytes32 nh2) internal view returns (bool f) {
+        address st = address(store);
+        assembly ("memory-safe") {
+            let q := mload(0x40)
+            mstore(q, shl(224, 0x75077164)) // largeChunk(bytes32,uint32)
+            mstore(add(q, 4), nh2)
+            mstore(add(q, 36), 0)
+            if iszero(staticcall(gas(), st, q, 68, 0, 0)) { revert(0, 0) }
+            returndatacopy(q, 0, 32)
+            let o := mload(q)
+            returndatacopy(q, o, 32) // length (≥ 16: chunk 0 holds the header)
+            if lt(mload(q), 16) { revert(0, 0) }
+            returndatacopy(q, add(o, 32), 32)
+            f := and(byte(7, mload(q)), 1)
+        }
     }
 
     /// Leaf 0 of the picked list: the public seg_0, or (0, EMPTY).
@@ -810,7 +863,7 @@ contract TapLargeDisputeGame {
         ) return Reason.BadFirstTuple;
         // the last tuples, against the party's own roots
         if (
-            !TapLargeHash.verify(x.roots[0], nSeg, nSeg - 1, _segLeaf(nSeg - 1, x.segLast), x.proofSegLast)
+            !TapLargeHash.verify(x.roots[0], nSeg, nSeg - 1, _segLeaf(c, nSeg - 1, x.segLast), x.proofSegLast)
                 || !TapLargeHash.verify(
                     x.roots[1],
                     nOutL,
@@ -832,25 +885,10 @@ contract TapLargeDisputeGame {
         if (x.outLast.ordinal != c.nOut || TapLargeHash.ioNext(x.ioT, x.outLast.root) != x.ioT1) {
             return Reason.OutputMismatch;
         }
-        // check 5
-        if (x.stateLast.ordinal != x.segLast.latchOrdinal || x.stateLast.root != x.stateRootT1) {
-            return Reason.StateMismatch;
-        }
+        // check 5: stateRoot_{t+1} is the last state root, combined with the last M for a file with MEM
+        bytes32 sr = c.hasMem ? TapLargeHash.memStateRoot(x.stateLast.root, x.segLast.m) : x.stateLast.root;
+        if (x.stateLast.ordinal != x.segLast.latchOrdinal || sr != x.stateRootT1) return Reason.StateMismatch;
         return Reason.None;
-    }
-
-    /// Case (a): inputRoot = tree(inputLeaf(0 … T−1)) over `data`, the concatenated packed inputs of the T
-    /// beats (⌈nIn/8⌉ bytes each, unused high bits zero; §4.4). Reverts on a wrong length or nonzero padding.
-    function _inputRootOf(uint64 T, uint256 nIn, bytes calldata data) internal view returns (bytes32) {
-        uint256 nb = (nIn + 7) / 8;
-        if (data.length != uint256(T) * nb) revert BadInputData();
-        bytes32[] memory leaves = new bytes32[](T);
-        for (uint256 t; t < T; ++t) {
-            bytes calldata v = data[t * nb:(t + 1) * nb];
-            if (nIn % 8 != 0 && uint8(v[nb - 1]) >> (nIn % 8) != 0) revert BadInputData();
-            leaves[t] = TapLargeHash.inputLeaf(uint64(t), v);
-        }
-        return TapLargeHash.merkleRoot(leaves);
     }
 
     /// packedInputs_t is ⌈nIn/8⌉ bytes with zero unused bits, and inputLeaf(t) is at index t of the tree of
@@ -864,31 +902,5 @@ contract TapLargeDisputeGame {
         if (packed.length != (nIn + 7) / 8) return false;
         if (nIn % 8 != 0 && uint8(packed[packed.length - 1]) >> (nIn % 8) != 0) return false;
         return TapLargeHash.verify(c.inputRoot, c.T, t, TapLargeHash.inputLeaf(t, packed), proof);
-    }
-
-    /// P of the public seg_0 (§5.3): prefixRoot(0x04, (0, 1, inputs…), 2 + nIn), built from packedInputs by
-    /// shifting the bit stream up by two places.
-    function _seg0P(bytes calldata packed, uint256 nIn) internal view returns (bytes32) {
-        uint256 s = 2 + nIn;
-        uint256 nWords = (s + 255) / 256;
-        bytes memory bits = new bytes(nWords * 32);
-        uint256 nBytes = (s + 7) / 8;
-        uint256 len = packed.length;
-        for (uint256 k; k < nBytes; ++k) {
-            uint256 cur = k < len ? uint8(packed[k]) : 0;
-            uint256 prev = k > 0 && k - 1 < len ? uint8(packed[k - 1]) : 0;
-            uint256 b = ((cur << 2) | (prev >> 6)) & 0xff;
-            if (k == 0) b |= 2; // signal 0 = 0, signal 1 = 1
-            bits[k] = bytes1(uint8(b));
-        }
-        bytes32[] memory leaves = new bytes32[](nWords);
-        for (uint256 k; k < nWords; ++k) {
-            bytes32 word;
-            assembly ("memory-safe") {
-                word := mload(add(add(bits, 0x20), shl(5, k)))
-            }
-            leaves[k] = TapLargeHash.wordLeaf(0x04, k, word);
-        }
-        return TapLargeHash.merkleRoot(leaves);
     }
 }

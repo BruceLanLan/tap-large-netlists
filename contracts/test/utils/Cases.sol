@@ -16,7 +16,8 @@ library Cases {
         uint8 oracle;
         uint8 expect; // 0, 1, 2 = not asserted
         uint32 info;
-        bytes32 stateRoot;
+        bytes32 latchRoot;
+        bytes32 memRoot;
         TapLargeVerifier.SegTuple a; // segment: a; beat-end: segM
         TapLargeVerifier.SegTuple b;
         TapLargeVerifier.Budget budget;
@@ -63,11 +64,12 @@ library Cases {
         t.latchOrdinal = uint32(uintN(r, 4));
         t.p = b32(r);
         t.d = b32(r);
+        t.m = b32(r);
     }
 
     function open(bytes memory data) internal pure returns (Reader memory r, bytes[] memory files) {
         r = Reader(data, 0);
-        require(uintN(r, 4) == 0x54444331, "cases: magic");
+        require(uintN(r, 4) == 0x54444332, "cases: magic"); // "TDC2"
         uint256 nf = uintN(r, 4);
         files = new bytes[](nf);
         for (uint256 i; i < nf; ++i) files[i] = bytesN(r, uintN(r, 4));
@@ -80,7 +82,8 @@ library Cases {
         c.expect = uint8(uintN(r, 1));
         c.info = uint32(uintN(r, 4));
         if (c.kind == 0) {
-            c.stateRoot = b32(r);
+            c.latchRoot = b32(r);
+            c.memRoot = b32(r);
             c.a = tuple(r);
             c.b = tuple(r);
             c.budget = TapLargeVerifier.Budget(uint32(uintN(r, 4)), uint32(uintN(r, 4)), uint32(uintN(r, 4)));

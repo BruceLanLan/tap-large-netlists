@@ -22,6 +22,7 @@ contract TapLargeVerifier {
         uint32 latchOrdinal;
         bytes32 p;
         bytes32 d;
+        bytes32 m; // memory root after the write ports before this boundary (§4.5); ZERO_MEM without MEM
     }
 
     struct EndTuple {
@@ -42,6 +43,8 @@ contract TapLargeVerifier {
 
     uint256 internal constant CHUNK = 16384;
     uint256 internal constant MAX_FILE = 67108864;
+    /// root of the all-zero memory tree (§4.6): Z_24, Z_0 = SHA-256(0x0B ‖ 0^32), Z_{h+1} = node(Z_h, Z_h)
+    bytes32 public constant ZERO_MEM = 0x073f71c2a5b9f99ff7828db2196e3c833ca70e5225e20912d7dcf150c165dcff;
     /// largeChunk(bytes32,uint32) selector, left-aligned
     uint256 internal constant SEL_LARGE_CHUNK = 0x7507716400000000000000000000000000000000000000000000000000000000;
     /// largeInfo(bytes32) selector, left-aligned
@@ -119,7 +122,18 @@ contract TapLargeVerifier {
     uint256 internal constant C_FASTEND = 0x960;
     uint256 internal constant C_BUFBASE = 0x980; // buffer address minus the file offset of its chunk
     uint256 internal constant C_PWBASE = 0x9a0;
-    uint256 internal constant C_SIZE = 0x9c0;
+    // memory (RAM ports, §6.1)
+    uint256 internal constant C_MEMROOT = 0x9c0; // memRoot argument
+    uint256 internal constant C_ZMEM = 0x9e0; // memRoot == ZERO_MEM
+    uint256 internal constant C_MR = 0xa00; // running memory root R
+    uint256 internal constant C_RDCUR = 0xa20; // calldata offset of the next read proof
+    uint256 internal constant C_RDN = 0xa40; // read proofs left
+    uint256 internal constant C_WRCUR = 0xa60; // calldata offset of the next write proof
+    uint256 internal constant C_WRN = 0xa80; // write proofs left
+    uint256 internal constant C_ZTAB = 0xaa0; // memory table Z_0 … Z_23 (only when the witness has proofs)
+    uint256 internal constant C_BANK = 0xac0; // parsed RAM port: bank; ROM port: 1 (data through loadData)
+    uint256 internal constant C_CHBM = 0xae0; // bitmap of the chunks fetched (C_NREAD counts distinct chunks)
+    uint256 internal constant C_SIZE = 0xb00;
 
     ITapLargeNetlistStore public immutable store;
     uint32 internal immutable _gates;
@@ -142,30 +156,41 @@ contract TapLargeVerifier {
     // verify_segment (§6.1)
     // =====================================================================================================
 
-    /// @notice verify_segment(netlistHash2, stateRoot, a, b, witness, budget) of §6.1.
+    /// @notice verify_segment(netlistHash2, latchRoot, memRoot, a, b, witness, budget) of §6.1. For a file
+    ///         without MEM, latchRoot is the agreed stateRoot and memRoot = ZERO_MEM; for a file with MEM they are
+    ///         the opening of the agreed stateRoot (EMPTY and ZERO_MEM in beat 0). The EMPTY rule (LATCHes read 0)
+    ///         is selected by latchRoot alone, the ZERO_MEM rule (RAM reads give 0, no read proof) by memRoot alone.
     function verifySegment(
         bytes32 netlistHash2,
-        bytes32 stateRoot,
+        bytes32 latchRoot,
+        bytes32 memRoot,
         SegTuple calldata a,
         SegTuple calldata b,
         bytes calldata witness,
         Budget calldata budget
     ) external view returns (bool) {
-        (bool ok,) = _verifySegment(netlistHash2, stateRoot, a, b, witness, budget);
+        (bool ok,) = _verifySegment(netlistHash2, latchRoot, memRoot, a, b, witness, budget);
         return ok;
     }
 
-    /// @dev Returns (result, chunks fetched from the oracle). A failure returns `false` from the call frame.
+    /// @dev Returns (result, distinct chunks fetched from the oracle). A failure returns `false` from the call frame.
     function _verifySegment(
         bytes32 nh2,
-        bytes32 stateRoot,
+        bytes32 latchRoot,
+        bytes32 memRoot,
         SegTuple calldata a,
         SegTuple calldata b,
         bytes calldata witness,
         Budget calldata budget
     ) internal view returns (bool, uint256) {
         uint256 c = _segBegin(nh2, a, witness);
-        _segProofs(c, stateRoot, a);
+        _segProofs(c, latchRoot, a);
+        bytes32 m0 = a.m;
+        assembly ("memory-safe") {
+            mstore(add(c, C_MEMROOT), memRoot)
+            mstore(add(c, C_ZMEM), eq(memRoot, ZERO_MEM))
+            mstore(add(c, C_MR), m0)
+        }
         _prepareSegment(c, budget);
         _runSegment(c, _ld(c, C_OFF0), _ld(c, C_L0));
         return (_segEnd(c, b), _ld(c, C_NREAD));
@@ -193,7 +218,7 @@ contract TapLargeVerifier {
     }
 
     /// @dev §6.1 steps 3 and 4.
-    function _segProofs(uint256 c, bytes32 stateRoot, SegTuple calldata a) internal view {
+    function _segProofs(uint256 c, bytes32 latchRoot, SegTuple calldata a) internal view {
         uint256 fs = _ld(c, C_FS);
         // step 3: append proofs of P at fs and of D at latchOrdinal
         _accSetup(c + C_PACC);
@@ -205,28 +230,31 @@ contract TapLargeVerifier {
         uint256 pwN = _ld(c, C_PWN);
         if (pwN != 0 && _ld(c, C_PHASP) != 0 && _idxAt(pwOff, pwN - 1) >= (fs >> 8)) _fail();
         if (!_checkWords(a.p, (fs + 255) >> 8, 0x04, pwOff, pwN, _ld(c, C_PPROOFOFF), _ld(c, C_PPROOFN))) _fail();
-        if (stateRoot == bytes32(0)) {
+        if (latchRoot == bytes32(0)) {
             if (_ld(c, C_SSIZE) != 0 || _ld(c, C_SWN) != 0 || _ld(c, C_SPROOFN) != 0) _fail();
             assembly ("memory-safe") {
                 mstore(add(c, C_ZERO), 1)
             }
         } else if (
             !_checkWords(
-                stateRoot, _ld(c, C_SSIZE), 0x05, _ld(c, C_SWOFF), _ld(c, C_SWN), _ld(c, C_SPROOFOFF), _ld(c, C_SPROOFN)
+                latchRoot, _ld(c, C_SSIZE), 0x05, _ld(c, C_SWOFF), _ld(c, C_SWN), _ld(c, C_SPROOFOFF), _ld(c, C_SPROOFN)
             )
         ) _fail();
     }
 
-    /// @dev §6.1 step 7.
+    /// @dev §6.1 step 6 (no proofs left over) and step 7.
     function _segEnd(uint256 c, SegTuple calldata b) internal view returns (bool) {
+        if (_ld(c, C_RDN) != 0 || _ld(c, C_WRN) != 0) return false;
         return b.byteOffset == _ld(c, C_OFFEND) && b.firstSignal == _ld(c, C_SIG)
             && b.latchOrdinal == _ld(c, C_LATEND) && b.p == _accRoot(c + C_PACC, 0x04, false)
-            && b.d == _accRoot(c + C_DACC, 0x09, true);
+            && b.d == _accRoot(c + C_DACC, 0x09, true) && b.m == bytes32(_ld(c, C_MR));
     }
 
     /// @dev Witness encoding of §6.3 (segment): fails if truncated, with trailing bytes, a bad flag, or word
-    ///      indices that do not strictly increase.
-    function _parseSegWitness(uint256 c, uint256 p, uint256 len) internal pure {
+    ///      indices that do not strictly increase. The memory part, present iff bytes follow the state
+    ///      multiproof, fails on nRead = nWrite = 0, a zeroMask bit above 23, or a spelled-out sibling equal to
+    ///      Z_h; it is parsed here (so the proof offsets are fixed) and the table Z_0 … Z_23 is built for it.
+    function _parseSegWitness(uint256 c, uint256 p, uint256 len) internal view {
         assembly ("memory-safe") {
             function fail() {
                 mstore(0, 0)
@@ -287,6 +315,54 @@ contract TapLargeVerifier {
             q := add(q, 4)
             q := words(q, e, C_SWOFF, C_SWN, c)
             q := hashes16(q, e, C_SPROOFOFF, C_SPROOFN, c)
+            if lt(q, e) {
+                // memory = u16(nRead) ‖ access × nRead ‖ u16(nWrite) ‖ access × nWrite,
+                // access = word ‖ u32(zeroMask) ‖ sibling × (24 − popcount(zeroMask))
+                let zt := mload(0x40)
+                mstore(0x40, add(zt, 0x300))
+                mstore(add(c, C_ZTAB), zt)
+                mstore8(0x00, 0x0b)
+                mstore(0x01, 0)
+                if iszero(staticcall(gas(), 0x02, 0x00, 33, zt, 0x20)) { revert(0, 0) }
+                for { let h := 1 } lt(h, 24) { h := add(h, 1) } {
+                    let z := mload(add(zt, shl(5, sub(h, 1))))
+                    mstore8(0x00, 0x01)
+                    mstore(0x01, z)
+                    mstore(0x21, z)
+                    if iszero(staticcall(gas(), 0x02, 0x00, 65, add(zt, shl(5, h)), 0x20)) { revert(0, 0) }
+                }
+                mstore(0x40, add(zt, 0x300))
+                let total := 0
+                for { let k := 0 } lt(k, 2) { k := add(k, 1) } {
+                    if gt(add(q, 2), e) { fail() }
+                    let n := shr(240, calldataload(q))
+                    q := add(q, 2)
+                    switch k
+                    case 0 {
+                        mstore(add(c, C_RDCUR), q)
+                        mstore(add(c, C_RDN), n)
+                    }
+                    default {
+                        mstore(add(c, C_WRCUR), q)
+                        mstore(add(c, C_WRN), n)
+                    }
+                    total := add(total, n)
+                    for { let i := 0 } lt(i, n) { i := add(i, 1) } {
+                        if gt(add(q, 36), e) { fail() }
+                        let mask := shr(224, calldataload(add(q, 32)))
+                        if shr(24, mask) { fail() }
+                        q := add(q, 36)
+                        for { let h := 0 } lt(h, 24) { h := add(h, 1) } {
+                            if iszero(and(shr(h, mask), 1)) {
+                                if gt(add(q, 32), e) { fail() }
+                                if eq(calldataload(q), mload(add(zt, shl(5, h)))) { fail() }
+                                q := add(q, 32)
+                            }
+                        }
+                    }
+                }
+                if iszero(total) { fail() }
+            }
             if iszero(eq(q, e)) { fail() }
         }
     }
@@ -320,8 +396,13 @@ contract TapLargeVerifier {
             m := add(m, 0x60)
             mstore(add(c, C_BUF), m)
             m := add(m, add(CHUNK, 0x40))
+            // references of the parsed record, packed as in the file (3 bytes each): at most 1 + 20 + 256
             mstore(add(c, C_REFS), m)
-            m := add(m, 0x280)
+            m := add(m, 0x360)
+            // bitmap of the chunks fetched (at most 4,096 chunks), zeroed
+            calldatacopy(m, calldatasize(), 0x200)
+            mstore(add(c, C_CHBM), m)
+            m := add(m, 0x200)
             // P-word table, zeroed
             let tbl := m
             let tblBytes := and(add(shl(1, tblN), 31), not(31))
@@ -424,7 +505,9 @@ contract TapLargeVerifier {
                 r := or(shr(128, r), shl(128, r))
             }
             // ---------------- chunk oracle
-            function ensure(ctx, ci) {
+            // fetches chunk ci (checked: index and length, §6); returns the offset of its bytes in the return data
+            // and its length. C_NREAD counts distinct chunks (bitmap C_CHBM).
+            function fetch(ctx, ci) -> ro, len {
                 let q := mload(add(ctx, C_CALLBUF))
                 mstore(q, SEL_LARGE_CHUNK)
                 mstore(add(q, 4), mload(add(ctx, C_NH2)))
@@ -436,16 +519,53 @@ contract TapLargeVerifier {
                 let o := mload(q)
                 if gt(o, sub(rds, 32)) { fail() }
                 returndatacopy(q, o, 32)
-                let len := mload(q)
+                len := mload(q)
                 let n := mload(add(ctx, C_NCH))
                 if iszero(lt(ci, n)) { fail() }
                 let want := CHUNK
                 if eq(ci, sub(n, 1)) { want := mload(add(ctx, C_LASTLEN)) }
                 if iszero(eq(len, want)) { fail() }
                 if gt(add(add(o, 32), len), rds) { fail() }
-                returndatacopy(mload(add(ctx, C_BUF)), add(o, 32), len)
+                ro := add(o, 32)
+                let at := add(mload(add(ctx, C_CHBM)), shl(5, shr(8, ci)))
+                let bit := shl(and(ci, 255), 1)
+                if iszero(and(mload(at), bit)) {
+                    mstore(at, or(mload(at), bit))
+                    mstore(add(ctx, C_NREAD), add(mload(add(ctx, C_NREAD)), 1))
+                }
+            }
+            // chunk ci into the buffer
+            function ensure(ctx, ci) {
+                let ro, len := fetch(ctx, ci)
+                returndatacopy(mload(add(ctx, C_BUF)), ro, len)
                 mstore(add(ctx, C_CUR), add(ci, 1))
-                mstore(add(ctx, C_NREAD), add(mload(add(ctx, C_NREAD)), 1))
+            }
+            // 32 bytes of chunk ci from offset o (o < its length; bytes past its end are zero), without replacing
+            // the chunk in the buffer
+            function chunkPart(ctx, ci, o) -> w {
+                if eq(mload(add(ctx, C_CUR)), add(ci, 1)) {
+                    w := mload(add(mload(add(ctx, C_BUF)), o))
+                    leave
+                }
+                let ro, len := fetch(ctx, ci)
+                let k := sub(len, o)
+                if gt(k, 32) { k := 32 }
+                let q := mload(add(ctx, C_CALLBUF))
+                mstore(q, 0)
+                returndatacopy(q, add(ro, o), k)
+                w := mload(q)
+            }
+            // n (<= 32) bytes at file offset `at` (at + n <= fileLen), left-aligned, read without moving the
+            // buffer: the data of a ROM read port, which may lie before the records being parsed
+            function loadData(ctx, at, n) -> w {
+                let ci := shr(14, at)
+                let o := and(at, 16383)
+                w := chunkPart(ctx, ci, o)
+                let rem := sub(CHUNK, o)
+                if lt(rem, n) {
+                    w := and(w, not(shr(shl(3, rem), not(0))))
+                    w := or(w, shr(shl(3, rem), chunkPart(ctx, add(ci, 1), 0)))
+                }
             }
             // n (<= 32) bytes at file offset `at`, left-aligned; bytes after the n-th are unspecified
             function load(ctx, at, n) -> w {
@@ -566,23 +686,54 @@ contract TapLargeVerifier {
                     gt(add(mload(add(ctx, C_SCOUNT)), mload(add(ctx, C_ROMCH))), mload(add(ctx, C_BC)))
                 )
             }
-            function evalRom(ctx) {
+            // reference i of the parsed record (packed u24)
+            function refAt(ctx, i) -> r {
+                r := shr(232, mload(add(mload(add(ctx, C_REFS)), mul(3, i))))
+            }
+            // copies the n references at file offset src into the reference buffer; returns the number of P words
+            // they newly count as external reads
+            function copyRefs(ctx, src, n) -> extDelta {
+                let refs := mload(add(ctx, C_REFS))
+                let total := mul(3, n)
+                for { let k := 0 } lt(k, total) { k := add(k, 32) } {
+                    let nb := sub(total, k)
+                    if gt(nb, 32) { nb := 32 }
+                    mstore(add(refs, k), load(ctx, add(src, k), nb))
+                }
                 let fs := mload(add(ctx, C_FS))
+                for { let i := 0 } lt(i, n) { i := add(i, 1) } {
+                    extDelta := add(extDelta, markP(ctx, shr(232, mload(add(refs, mul(3, i)))), fs))
+                }
+            }
+            // Σ value(ref[first + i]) · 2^i for i < a
+            function addrOf(ctx, first, a) -> addr {
+                let fs := mload(add(ctx, C_FS))
+                for { let i := 0 } lt(i, a) { i := add(i, 1) } {
+                    addr := or(addr, shl(i, val(ctx, refAt(ctx, add(first, i)), fs)))
+                }
+            }
+            // ROM (port = 0) or ROM read port (port = 1, data read without moving the buffer)
+            function evalRom(ctx, port) {
                 let a := mload(add(ctx, C_ROMA))
                 let w := mload(add(ctx, C_ROMW))
-                let refs := mload(add(ctx, C_REFS))
-                let addr := 0
-                for { let i := 0 } lt(i, a) { i := add(i, 1) } {
-                    addr := or(addr, shl(i, val(ctx, mload(add(refs, shl(5, i))), fs)))
-                }
+                let addr := addrOf(ctx, 0, a)
                 let base := mul(addr, w)
                 let lo := add(mload(add(ctx, C_ROMDS)), shr(3, base))
                 let nb := add(sub(shr(3, add(base, sub(w, 1))), shr(3, base)), 1)
+                if gt(add(lo, nb), mload(add(ctx, C_FLEN))) { fail() }
                 let n1 := nb
                 if gt(n1, 32) { n1 := 32 }
-                let w1 := load(ctx, lo, n1)
+                let w1 := 0
                 let w2 := 0
-                if gt(nb, 32) { w2 := load(ctx, add(lo, 32), sub(nb, 32)) }
+                switch port
+                case 0 {
+                    w1 := load(ctx, lo, n1)
+                    if gt(nb, 32) { w2 := load(ctx, add(lo, 32), sub(nb, 32)) }
+                }
+                default {
+                    w1 := loadData(ctx, lo, n1)
+                    if gt(nb, 32) { w2 := loadData(ctx, add(lo, 32), sub(nb, 32)) }
+                }
                 let sh := and(base, 7)
                 for { let j := 0 } lt(j, w) { j := add(j, 1) } {
                     let t := add(sh, j)
@@ -590,6 +741,90 @@ contract TapLargeVerifier {
                     case 1 { appendP(ctx, bitAt(w1, t)) }
                     default { appendP(ctx, bitAt(w2, sub(t, 256))) }
                 }
+            }
+            // ---------------- memory (§4.6, §6.1)
+            function memLeaf(word) -> h {
+                mstore8(0x00, 0x0b)
+                mstore(0x01, word)
+                if iszero(staticcall(gas(), 0x02, 0x00, 33, 0x00, 0x20)) { revert(0, 0) }
+                h := mload(0x00)
+            }
+            // folds leaf hA (and hB if two) with the 24 siblings of the memory proof at calldata offset cur
+            // (zero siblings from the mask); returns both roots and the offset after the proof
+            function memFold(ctx, cur, pos, hA, hB, two) -> rA, rB, next {
+                let mask := shr(224, calldataload(add(cur, 32)))
+                let q := add(cur, 36)
+                let zt := mload(add(ctx, C_ZTAB))
+                for { let h := 0 } lt(h, 24) { h := add(h, 1) } {
+                    let sib := 0
+                    switch and(shr(h, mask), 1)
+                    case 1 { sib := mload(add(zt, shl(5, h))) }
+                    default {
+                        sib := calldataload(q)
+                        q := add(q, 32)
+                    }
+                    switch and(shr(h, pos), 1)
+                    case 0 {
+                        hA := nodeHash(hA, sib)
+                        if two { hB := nodeHash(hB, sib) }
+                    }
+                    default {
+                        hA := nodeHash(sib, hA)
+                        if two { hB := nodeHash(sib, hB) }
+                    }
+                }
+                rA := hA
+                rB := hB
+                next := q
+            }
+            // (pos, o) of entry addr of the parsed port's bank: bit = addr · stride(w), pos = bank · 2^16 + bit / 256
+            function memPos(ctx, addr) -> pos, o {
+                let w := mload(add(ctx, C_ROMW))
+                let st := 1
+                for {} lt(st, w) {} { st := shl(1, st) }
+                let bit := mul(addr, st)
+                pos := or(shl(16, mload(add(ctx, C_BANK))), shr(8, bit))
+                o := and(bit, 255)
+            }
+            function evalRamRead(ctx) {
+                let w := mload(add(ctx, C_ROMW))
+                let addr := addrOf(ctx, 0, mload(add(ctx, C_ROMA)))
+                if mload(add(ctx, C_ZMEM)) {
+                    for { let j := 0 } lt(j, w) { j := add(j, 1) } { appendP(ctx, 0) }
+                    leave
+                }
+                let left := mload(add(ctx, C_RDN))
+                if iszero(left) { fail() }
+                let pos, o := memPos(ctx, addr)
+                let cur := mload(add(ctx, C_RDCUR))
+                let word := calldataload(cur)
+                let r, r2, next := memFold(ctx, cur, pos, memLeaf(word), 0, 0)
+                if iszero(eq(r, mload(add(ctx, C_MEMROOT)))) { fail() }
+                mstore(add(ctx, C_RDCUR), next)
+                mstore(add(ctx, C_RDN), sub(left, 1))
+                for { let j := 0 } lt(j, w) { j := add(j, 1) } { appendP(ctx, bitAt(word, add(o, j))) }
+            }
+            function evalRamWrite(ctx) {
+                let fs := mload(add(ctx, C_FS))
+                if iszero(val(ctx, refAt(ctx, 0), fs)) { leave }
+                let a := mload(add(ctx, C_ROMA))
+                let w := mload(add(ctx, C_ROMW))
+                let pos, o := memPos(ctx, addrOf(ctx, 1, a))
+                let left := mload(add(ctx, C_WRN))
+                if iszero(left) { fail() }
+                let cur := mload(add(ctx, C_WRCUR))
+                let old := calldataload(cur)
+                let nw := old
+                for { let j := 0 } lt(j, w) { j := add(j, 1) } {
+                    let t := add(o, j)
+                    let bp := add(sub(248, and(t, 0xf8)), and(t, 7))
+                    nw := or(and(nw, not(shl(bp, 1))), shl(bp, val(ctx, refAt(ctx, add(add(1, a), j)), fs)))
+                }
+                let rOld, rNew, next := memFold(ctx, cur, pos, memLeaf(old), memLeaf(nw), 1)
+                if iszero(eq(rOld, mload(add(ctx, C_MR)))) { fail() }
+                mstore(add(ctx, C_MR), rNew)
+                mstore(add(ctx, C_WRCUR), next)
+                mstore(add(ctx, C_WRN), sub(left, 1))
             }
             // ---------------- fast path
             // value of an external signal (2 <= x < fs): the partial word of the append proof or a P word
@@ -644,6 +879,9 @@ contract TapLargeVerifier {
                     if iszero(eq(cur, mload(add(ctx, C_SLASTCH)))) { leave }
                     if gt(add(mload(add(ctx, C_SCOUNT)), mload(add(ctx, C_ROMCH))), mload(add(ctx, C_BC))) { leave }
                     if iszero(lt(mload(add(ctx, C_GATES)), mload(add(ctx, C_BG)))) { leave }
+                    // a first record over the extWords budget (a port's memory units, or a ROM with many address
+                    // words): no further record fits, which the general path decides
+                    if gt(mload(add(ctx, C_EXT)), mload(add(ctx, C_BE))) { leave }
                     let fe := shl(14, cur)
                     if lt(mload(add(ctx, C_FLEN)), fe) { fe := mload(add(ctx, C_FLEN)) }
                     // a record starting at or before fe - 7 lies inside (NAND 7 bytes, LATCH 4)
@@ -779,13 +1017,57 @@ contract TapLargeVerifier {
                 mstore(add(ctx, C_ROMA), a)
                 mstore(add(ctx, C_ROMW), w)
                 mstore(add(ctx, C_ROMDS), ds)
-                let refs := mload(add(ctx, C_REFS))
-                let fs := mload(add(ctx, C_FS))
-                for { let i := 0 } lt(i, a) { i := add(i, 1) } {
-                    let r := shr(232, load(ctx, add(add(at, 4), mul(3, i)), 3))
-                    mstore(add(refs, shl(5, i)), r)
-                    extDelta := add(extDelta, markP(ctx, r, fs))
+                extDelta := copyRefs(ctx, add(at, 4), a)
+            }
+            // RAM read port 0x11, RAM write port 0x12, ROM read port 0x13: the header (5 or 8 bytes) is checked
+            // against fileLen, then the dimensions, then the record length, before the references are read; the
+            // structural bytes are the whole record; a RAM port adds MEM_WEIGHT = 4 external units of its own
+            function parsePort(ctx, at, op, fileLen) -> extDelta {
+                let hl := 5
+                if eq(op, 0x13) { hl := 8 }
+                if gt(add(at, hl), fileLen) { fail() }
+                let h := load(ctx, at, hl)
+                let a := byte(2, h)
+                let w := or(shl(8, byte(3, h)), byte(4, h))
+                let bank := byte(1, h)
+                if eq(op, 0x13) {
+                    a := byte(5, h)
+                    w := or(shl(8, byte(6, h)), byte(7, h))
+                    bank := 0
                 }
+                if or(or(lt(a, 1), gt(a, 20)), or(lt(w, 1), gt(w, 256))) { fail() }
+                let nrefs := a
+                let romc := 0
+                switch op
+                case 0x13 {
+                    let ds := add(add(shr(224, shl(8, h)), 4), mul(3, a))
+                    let dend := add(ds, shr(3, add(mul(shl(a, 1), w), 7)))
+                    romc := add(sub(shr(14, sub(dend, 1)), shr(14, ds)), 1)
+                    if gt(romc, 2) { romc := 2 }
+                    mstore(add(ctx, C_ROMDS), ds)
+                    mstore(add(ctx, C_G), add(w, a))
+                }
+                default {
+                    let st := 1
+                    for {} lt(st, w) {} { st := shl(1, st) }
+                    if gt(shl(a, st), 0x1000000) { fail() }
+                    switch op
+                    case 0x12 {
+                        nrefs := add(add(1, a), w)
+                        mstore(add(ctx, C_G), add(add(1, a), w))
+                    }
+                    default { mstore(add(ctx, C_G), add(w, a)) }
+                }
+                let end := add(add(at, hl), mul(3, nrefs))
+                if gt(end, fileLen) { fail() }
+                mstore(add(ctx, C_END), end)
+                mstore(add(ctx, C_SEND), end)
+                mstore(add(ctx, C_RC), romc)
+                mstore(add(ctx, C_ROMA), a)
+                mstore(add(ctx, C_ROMW), w)
+                mstore(add(ctx, C_BANK), bank)
+                extDelta := copyRefs(ctx, add(at, hl), nrefs)
+                if iszero(eq(op, 0x13)) { extDelta := add(extDelta, 4) }
             }
             function parse(ctx, at, l) {
                 let fileLen := mload(add(ctx, C_FLEN))
@@ -822,6 +1104,9 @@ contract TapLargeVerifier {
                     }
                 }
                 case 0x10 { ext := add(ext, parseRom(ctx, at, h, fileLen)) }
+                case 0x11 { ext := add(ext, parsePort(ctx, at, op, fileLen)) }
+                case 0x12 { ext := add(ext, parsePort(ctx, at, op, fileLen)) }
+                case 0x13 { ext := add(ext, parsePort(ctx, at, op, fileLen)) }
                 default { fail() }
                 mstore(add(ctx, C_EXTNEW), ext)
             }
@@ -868,7 +1153,10 @@ contract TapLargeVerifier {
                     appendP(ctx, v)
                     l2 := add(l, 1)
                 }
-                default { evalRom(ctx) }
+                case 0x10 { evalRom(ctx, 0) }
+                case 0x13 { evalRom(ctx, 1) }
+                case 0x11 { evalRamRead(ctx) }
+                default { evalRamWrite(ctx) }
             }
 
             mstore(add(c, C_HOFF), off)

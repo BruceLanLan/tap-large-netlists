@@ -69,6 +69,13 @@ Disputes (dodge, the "good player" buttons, T = 651, K = 32, honest score 34, RA
 | E claim of 98 (a bit of the RAM read port's output flipped) vs honest challenger | cheater loses | 8 | 1 `verify_segment(seg_0 → seg_1)`, witness 156 B |
 | F honest claim vs the cheater of E as challenger | honest party wins | 8 | 1 |
 
+On chain (Foundry, `contracts/` of this repository; Appendix B of the TAP): the verifier step of the one segment
+takes 648,550 gas of execution in a beat with a RAM read and a RAM write (against 3.4 to 5.5 million for each of the
+three segments of the LATCH-RAM build), and the upload 1,384,398 gas in two transactions (22,780,576 in eight for
+the LATCH-RAM build). Scenarios A to F are replayed through the reference game (`test/game/E2E.t.sol`, `dodge/*`,
+inputs published by an input provider): disputes B to F cost 2,276,817 to 2,434,957 gas for all parties together,
+and the costliest move of each is the final `proveSegment`, at most 764,023 gas.
+
 With LATCH RAM the same lies took 10 to 12 rounds, and a lie about a RAM bit was decided by `verify_beat_end` over
 the 2,073-bit state list. The program takes 540 bytes in both builds; with LATCH RAM almost the whole file was the
 256 bytes of RAM (about 12,900 NAND and 2,048 LATCH).

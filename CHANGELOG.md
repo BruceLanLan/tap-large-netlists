@@ -23,7 +23,19 @@ All notable changes to this repository. The TAP text is a draft; its number is a
   `3008acc10a1d0694763a1c9f7a59990d172ba70472f09aa27021edf89b93a753`).
 - `demo/cartridge/`: the RAM is now bank 0 of the RAM ports: 5,781 bytes, 1 chunk, 1 segment (the LATCH-RAM build
   is kept as `build_cartridge(rom, ram="latch")` and `build/legacy/`); 17 tests.
-- `contracts/`: not yet updated for RAM ports (pending).
+- `contracts/`: the verifier implements RAM read and write ports, ROM read ports, the memory proofs and their
+  encoding, and `verifySegment(netlistHash2, latchRoot, memRoot, a, b, witness, budget)` with six-field tuples; the
+  game reads the MEM flag at the claim, checks the claimant's opening of `stateRoot_t` at level 3 (new reason
+  `BadOpening`), hashes `M` into segment leaves and applies check 5 with the combined root. Its tree computations
+  moved to the external library `TapLargeGameLib`, which brings the game below the EIP-170 code size limit (it was
+  237 bytes over before). Fixed: the verifier's fast path could add a NAND or LATCH after a first record that alone
+  exceeded `extWords` (a ROM with many address words under a small budget; with RAM ports also a write port under
+  the default budget); the Python reference ends the segment there, and now so does the verifier. Tests: every
+  vector (177 + 60) replayed, a 3,500-case differential corpus with RAM files, 111 end-to-end scenarios (RAM
+  cheaters on `ram16` and `rammix`, a claimant without an opening, the cartridge's score disputes), gas cases for
+  RAM ports, ROM read ports and the cartridge; 84 Foundry tests. The default budget and the weight of four words per
+  memory access are unchanged: the costliest segment with RAM ports measured 5.9 million gas against 9.3 million
+  for the costliest call. Appendix B gives the measurements instead of the estimates.
 
 ## v0.1 (draft) — 2026-10-19
 

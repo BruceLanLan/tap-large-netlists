@@ -50,7 +50,7 @@ contract GasVerifyTest is Test {
     function _calldata(Cases.Case memory c) internal view returns (bytes memory) {
         if (c.kind == 0) {
             return abi.encodeCall(
-                TapLargeVerifier.verifySegment, (nh2s[c.fileIdx], c.stateRoot, c.a, c.b, c.witness, c.budget)
+                TapLargeVerifier.verifySegment, (nh2s[c.fileIdx], c.latchRoot, c.memRoot, c.a, c.b, c.witness, c.budget)
             );
         }
         return abi.encodeCall(TapLargeVerifier.verifyBeatEnd, (nh2s[c.fileIdx], c.nOut, c.a, c.ea, c.eb, c.witness));
@@ -84,7 +84,7 @@ contract GasVerifyTest is Test {
             bytes memory cd = _calldata(c);
             if (c.kind == 0) {
                 (bool okH, uint256 reads) =
-                    harness.verifySegmentReads(nh2s[c.fileIdx], c.stateRoot, c.a, c.b, c.witness, c.budget);
+                    harness.verifySegmentReads(nh2s[c.fileIdx], c.latchRoot, c.memRoot, c.a, c.b, c.witness, c.budget);
                 assertTrue(okH, c.name);
                 assertEq(reads, c.info, string.concat("chunks read differ from Python: ", c.name));
             }

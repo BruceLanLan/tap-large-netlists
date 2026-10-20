@@ -19,18 +19,20 @@ contract GameHarness is TapLargeDisputeGame {
         address claimant_,
         address challenger_,
         bytes32 nh2,
-        bytes32 stateRootT,
+        bytes32 latchRootT,
+        bytes32 memRootT,
         TapLargeVerifier.SegTuple calldata a,
         TapLargeVerifier.SegTuple calldata b
     ) external returns (uint256 id) {
         id = _force(claimant_, challenger_, nh2);
         Dispute storage d = _disputes[id][challenger_];
         d.kind = KIND_SEG;
-        d.stateRootT = stateRootT;
+        d.latchRootT = latchRootT;
+        d.memRootT = memRootT;
         d.lo = 6;
         d.hi = 7;
-        d.loLeaf = TapLargeHash.segLeaf(6, a.byteOffset, a.firstSignal, a.latchOrdinal, a.p, a.d);
-        d.hiLeaf[0] = TapLargeHash.segLeaf(7, b.byteOffset, b.firstSignal, b.latchOrdinal, b.p, b.d);
+        d.loLeaf = _segLeaf(_claims[id], 6, a);
+        d.hiLeaf[0] = _segLeaf(_claims[id], 7, b);
     }
 
     function forceProveEnd(
@@ -46,7 +48,7 @@ contract GameHarness is TapLargeDisputeGame {
         Dispute storage d = _disputes[id][challenger_];
         d.kind = kind;
         d.segMIndex = 9;
-        d.segMLeaf = TapLargeHash.segLeaf(9, segM.byteOffset, segM.firstSignal, segM.latchOrdinal, segM.p, segM.d);
+        d.segMLeaf = _segLeaf(_claims[id], 9, segM);
         d.lo = 0;
         d.hi = 1;
         d.loLeaf = TapLargeHash.endLeaf(kind, 0, a.ordinal, a.root);
@@ -63,6 +65,7 @@ contract GameHarness is TapLargeDisputeGame {
         (c.fileLen, c.nIn, c.nOut,,) = store.largeInfo(nh2);
         (c.budget.gates, c.budget.extWords, c.budget.chunks) = verifier.segmentBudget();
         c.netlistHash2 = nh2;
+        c.hasMem = _memFlag(nh2);
         c.status = Status.Open;
         c.windowEnd = uint64(block.timestamp) + challengeWindow;
         c.openDisputes = 1;
@@ -387,8 +390,10 @@ contract GameLimitsTest is Test {
 
     /// The costliest calls of the gas suite (test/data/gas_cases.bin) sent through the game's final move: a
     /// default-budget segment of 6,000 NANDs reading 256 scattered words of the deepest signal tree (a file of
-    /// 16,777,024 signals, 65,536 words; 75 KB witness), and a 256-value state step reading 256 scattered P words
-    /// (73 KB witness).
+    /// 16,777,024 signals, 65,536 words; 75 KB witness), a 256-value state step reading 256 scattered P words
+    /// (73 KB witness), and the costliest segments of a file with MEM: 64 RAM write (read) ports with dense memory
+    /// (64 proofs of 804 bytes) and 4,078 (4,142) NANDs, where the game hashes M into the segment leaves and passes
+    /// latchRoot_t and memRoot_t.
     function test_worstFinalMoveThroughGame() public {
         (Cases.Reader memory r, bytes[] memory files) = Cases.open(vm.readFileBinary("test/data/gas_cases.bin"));
         uint256 n = Cases.uintN(r, 4);
@@ -398,7 +403,7 @@ contract GameLimitsTest is Test {
         uint256 found;
         for (uint256 i; i < n; ++i) {
             Cases.Case memory c = Cases.next(r);
-            bool seg = _startsWith(c.name, "wide scatter default budget");
+            bool seg = _startsWith(c.name, "wide scatter default budget") || _startsWith(c.name, "ram worst");
             bool end = _startsWith(c.name, "wideA beat-end state 0..255");
             if (!seg && !end) continue;
             if (nh2s[c.fileIdx] == 0) nh2s[c.fileIdx] = Upload.upload(store, files[c.fileIdx], true, 0);
@@ -406,7 +411,7 @@ contract GameLimitsTest is Test {
             uint256 id;
             bytes memory cd;
             if (seg) {
-                id = g.forceProveSeg(claimant, challenger, nh2, c.stateRoot, c.a, c.b);
+                id = g.forceProveSeg(claimant, challenger, nh2, c.latchRoot, c.memRoot, c.a, c.b);
                 cd = abi.encodeCall(TapLargeDisputeGame.proveSegment, (id, challenger, c.a, c.b, c.witness));
             } else {
                 id = g.forceProveEnd(claimant, challenger, nh2, c.a, 2, c.ea, c.eb);
@@ -424,7 +429,7 @@ contract GameLimitsTest is Test {
             assertLe(used, TX_GAS_CAP);
             ++found;
         }
-        assertEq(found, 2);
+        assertEq(found, 4);
     }
 
     function _startsWith(string memory s, string memory p) internal pure returns (bool) {

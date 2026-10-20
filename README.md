@@ -44,21 +44,21 @@ Python 3.9+ (standard library only) and Foundry 1.8.3. `contracts/lib/forge-std`
 ( cd demo/cartridge && python3 test_cartridge.py )
 ```
 
-Current results: 67 Python tests (49 + 18 for RAM ports), 17 cartridge tests, all passing; the 68 Foundry tests passed before the RAM ports were added, and the Solidity side of the RAM ports is pending ([`docs/TESTING.md`](docs/TESTING.md)). `vectors.json` SHA-256: `3008acc10a1d0694763a1c9f7a59990d172ba70472f09aa27021edf89b93a753`.
+Current results: 67 Python tests (49 + 18 for RAM ports), 17 cartridge tests and 84 Foundry tests (including 111 end-to-end dispute scenarios, every vector replayed and a 3,500-case differential corpus), all passing ([`docs/TESTING.md`](docs/TESTING.md)). `vectors.json` SHA-256: `3008acc10a1d0694763a1c9f7a59990d172ba70472f09aa27021edf89b93a753`.
 
 ### Key figures (measured, see Appendix B of the TAP)
 
 - Default budget `(gates, extWords, chunks) = (6000, 256, 16)`; the costliest verifier call measured takes about 9.3 million gas of execution, about 10.6 million as the final move of the reference game; witnesses are at most 84,208 bytes (segment; 84,212 with RAM ports) and 92,810 bytes (beat end).
-- The TAPBOY-8 cartridge with RAM ports: 5,781 bytes, one chunk, one segment per beat (with LATCH-based RAM: 104,076 bytes, 7 chunks, 3 segments). Gas figures for RAM ports are estimates until the Solidity verifier implements them.
+- RAM ports: about 25,400 gas per read port and 37,000 per write port (`a = 8`, `w = 8`); the costliest segment with RAM ports under the default budget (64 write ports, 804-byte proofs) takes about 5.9 million gas of execution.
+- The TAPBOY-8 cartridge with RAM ports: 5,781 bytes, one chunk, one segment per beat of about 0.65 million gas, upload about 1.4 million gas (with LATCH-based RAM: 104,076 bytes, 7 chunks, 3 segments of up to 5.5 million gas, upload about 22.8 million); a score dispute through the reference game costs about 2.3 to 2.4 million gas for all parties together.
 - Storing a 16 KiB chunk: about 3.7 million gas per transaction; a 7.5 MB file (456 chunks): about 1.67 × 10^9 gas.
-- A dispute that reaches the verifier: 1.4 to 5.8 million gas for all parties together in the reference scenarios.
+- A dispute that reaches the verifier: 1.4 to 5.9 million gas for all parties together in the reference scenarios.
 
 The TAP makes no claim about the monetary cost of uploads or disputes.
 
 ### What is not done
 
 - Nothing is deployed, and nothing has been externally audited. The dispute game is informative and not production code.
-- The Solidity verifier, game and tests do not implement the RAM ports and ROM read ports yet.
 - Open questions are listed in the TAP: ROM opcode coordination with TAP-02, a structural hash for `tapnet/2`, initial memory contents, invalidity proofs, proofs of input inconsistency.
 
 ### Contact
@@ -84,12 +84,11 @@ X [@BruceBlue](https://x.com/BruceBlue) · GitHub [@BruceLanLan](https://github.
 
 ### 运行测试
 
-需要 Python 3.9+（只用标准库）与 Foundry 1.8.3。`contracts/lib/forge-std` 不随仓库提交，见 [`contracts/lib/README.md`](contracts/lib/README.md)。命令与当前结果见 [`docs/TESTING.md`](docs/TESTING.md)：Python 67 项（其中 RAM 端口 18 项）、卡带 17 项，全部通过；Foundry 68 项在加入 RAM 端口之前全部通过，RAM 端口的 Solidity 部分尚待完成。
+需要 Python 3.9+（只用标准库）与 Foundry 1.8.3。`contracts/lib/forge-std` 不随仓库提交，见 [`contracts/lib/README.md`](contracts/lib/README.md)。命令与当前结果见 [`docs/TESTING.md`](docs/TESTING.md)：Python 67 项（其中 RAM 端口 18 项）、卡带 17 项、Foundry 84 项（包括 111 个端到端争议场景、全部向量的重放与 3,500 个用例的差分语料），全部通过。
 
 ### 尚未完成
 
 - 没有任何部署，也没有外部审计；争议博弈是信息性的，不是生产代码。
-- Solidity 核对实现、博弈与测试尚未实现 RAM 端口与 ROM 读口。
 - 待定问题见 TAP：ROM 操作码与 TAP-02 的协调、`tapnet/2` 的结构哈希、存储器初始内容、无效性证明、输入不一致证明。
 
 ### 联系
