@@ -8,6 +8,8 @@ venv/
 contracts/out/
 contracts/cache/
 contracts/broadcast/
+# written by contracts/script/anvil-dry-run.sh (local node); real testnet files deployments/<chainId>.json are committed
+contracts/deployments/31337.json
 # forge-std is installed locally (see contracts/lib/README.md), not committed
 contracts/lib/forge-std
 

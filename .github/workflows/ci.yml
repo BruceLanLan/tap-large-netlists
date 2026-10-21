@@ -53,6 +53,9 @@ jobs:
       - name: forge test
         working-directory: contracts
         run: forge test
+      - name: Deployment script, anvil dry run (DEPLOY.md §8; local node, anvil's public dev key)
+        working-directory: contracts
+        run: ./script/anvil-dry-run.sh
       - name: Gas outputs must match the committed ones
         run: git diff --exit-code
 

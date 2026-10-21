@@ -12,7 +12,7 @@ bytecode_hash = "none"
 cbor_metadata = false
 gas_limit = "18446744073709551615"
 memory_limit = 1073741824
-fs_permissions = [{ access = "read", path = "../assets/tap-draft-large-netlists" }, { access = "read", path = "../demo/cartridge/build" }, { access = "read-write", path = "./test/data" }]
+fs_permissions = [{ access = "read", path = "../assets/tap-draft-large-netlists" }, { access = "read", path = "../demo/cartridge/build" }, { access = "read-write", path = "./test/data" }, { access = "read-write", path = "./deployments" }]
 
 [fuzz]
 runs = 256
