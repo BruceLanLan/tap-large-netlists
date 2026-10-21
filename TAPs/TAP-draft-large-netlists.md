@@ -3,10 +3,11 @@ tap: TBD
 title: Large Netlists and Verifiable Execution
 description: A netlist format with mask-ROM records and RAM ports, a chunked netlist hash with a staged on-chain upload, and the commitments, one-step verifiers and dispute rules that let a contract settle disagreements about runs of netlists far larger than one transaction.
 author: Bruce (@BruceLanLan)
-discussions-to: TBD (new Idea issue)
+discussions-to: https://github.com/TapeOutProtocol/TAPs/issues/71
 status: Draft
 type: Standards
 created: 2026-10-19
+updated: 2026-10-21
 requires: TAP-02, ERC-165
 license: CC0-1.0
 ---
@@ -545,6 +546,38 @@ If both pass, the game picks the first of the lists segment, output, state whose
 
 **Length.** A dispute that reaches a verifier takes at most `⌈log2 K⌉ + ⌈log2 h⌉ + 5` rounds, or `⌈log2 K⌉ + 6` when the tuples at `h` are equal; Appendix D counts them and notes the costs a game has to price in.
 
+### 8. Use with netlist-bound NFTs (informative)
+
+This section is informative. It describes how tokens and contracts that follow `TAP-draft-netlist-bound-nft` (called **core** in this section) could bind a token to a `tapnet/2` netlist; §1 to §7 do not depend on it. It relies on core §2.5 (Other netlist formats), part of a proposed amendment to core that is not yet merged (§8.3, Backwards Compatibility), and states no requirements of its own: the members that core §2.5 asks a format to define are specified in §2.2, which this section restates. Once core contains §2.5, a later revision of this TAP can turn the rest of this section into requirements.
+
+#### 8.1 Metadata and pools
+
+The `netlist` member of the `tap` object (core §7.1) of a token whose netlist is a `tapnet/2` file would contain the following, where `format`, `netlistHash2`, `bytes` and the metric members follow §2.2:
+
+| Member | Type | Content |
+|---|---|---|
+| `format` | string | `"tapnet/2"` |
+| `netlistHash2` | string | §2.1, `0x` + 64 lowercase hexadecimal digits |
+| `bytes`, `nIn`, `nOut`, `nand`, `latch`, `romBits`, `romRecords` | numbers | the metrics of §1.4 |
+| `ramBanks`, `ramBits`, `ramReadPorts`, `ramWritePorts`, `romPorts` | numbers | the metrics of §1.4 of a file with ports (optional otherwise) |
+| `uris` | array | a non-empty array of URI strings of the file |
+
+As §2.2 requires, it would contain no `sha256`: `netlistHash2` takes its place, and `bytes` is the file length of §1.4 instead of the `tapnet/1` formula of core §7.3 item 2. It would contain `structuralHash` only for files for which `TAP-draft-netlist-structural-hash` defines one (core §7.1); the structural hash that draft defines covers `tapnet/1` files only. Pool entries (core §5.2) would carry `netlistHash2` as the netlist value. A tool that checks such a token (core §7.4) would fetch the file, check that it is a valid `tapnet/2` file, compute `netlistHash2` from it and compare that with `tap.netlist.netlistHash2` and with the pool entry, and compare the metrics. Core §2.5 requires a tool that does not support this format to display the token's netlist as unverifiable, not as invalid.
+
+#### 8.2 Relation to core interfaces
+
+These would be consequences of core with §2.5 (§8.3), not new requirements on core:
+
+- At L0 (core §8.1) nothing would change: the metadata carries the hash and the URIs, and the size of the file plays no role.
+- At L1 (core §8.2), `netlistHashOf` would return `netlistHash2` for a `tapnet/2` token. A `tapnet/2` netlist hash would be **known** under the same rules as any netlist hash (core §8.2 item 4). A collection or a companion (core §8.2–§8.3) could store `tapnet/2` files under §3; the known hashes of §3 item 7 would then be its known netlist hashes.
+- `storeNetlist` would never accept a `tapnet/2` file: core §2.5 and §8.2 item 4 limit it to `tapnet/1` files whose SHA-256 is a known netlist hash (and at most 49,152 bytes long), a mint-bound contract (core §8.2) may in addition accept any valid `tapnet/1` file, which a `tapnet/2` file is not, and the SHA-256 of a `tapnet/2` file is not its netlist hash. Hence `netlistFile(netlistHash2)` and `netlistOf` would not return `tapnet/2` files; §3 is how such a file is stored and read on chain.
+- Because the file is never stored through `storeNetlist`, the Eval extension's functions would revert for a `tapnet/2` token (core §8.4 item 3), and a contract would not evaluate a `tapnet/2` file through `ITapNetlistEval`. A large netlist (any `tapnet/2` file, whatever its size) would not implement the Eval extension (`evalOf`, `stepOf`, `evalFile`, `stepFile`).
+- A dispute game (§7) about a `tapnet/2` netlist of a collection would be started only for netlists committed by a manifest of the collection (core §5) whose files were checked off chain, as §7.1 requires of every game. Whether mint-bound collections should also be eligible is Open question 9.
+
+#### 8.3 The format hook in core (§2.5)
+
+Without §2.5, core assumes in several places that every netlist value is `SHA-256(file)` of a valid `tapnet/1` file: §2.2 (validity), §2.3 (the hash rule), §2.4 (metrics), §5.2 (every netlist hash in a pool has to belong to a valid `tapnet/1` file), §7.1 (`format` is `"tapnet/1"`, `sha256` is required), §7.3 items 2 and 3 (`tap.netlist.bytes` follows the `tapnet/1` size formula, and `tap.netlist.sha256` equals the pool entry), §7.4 (a tool checks the SHA-256 against `sha256`) and §8.2 item 4 (known netlist hashes and `storeNetlist`). The structural hash and bridging extensions are also written for `tapnet/1`. Core §2.5 is the one hook on which this section relies: for a netlist in a format defined under it, pool entries, `netlistHashOf` and the known netlist hashes hold that format's netlist hash, the requirements listed above that refer to `tapnet/1`, `SHA-256(file)`, `sha256` or the `bytes` formula apply with the format's validity, metrics, hash and members in their place, and `storeNetlist`, `netlistFile`, `netlistOf`, the Eval extension and TAPs written for `tapnet/1` apply to `tapnet/1` files only unless they say otherwise. §2.5 is part of a proposed amendment to core that is not yet merged (Backwards Compatibility); this TAP makes no change to core.
+
 ## Rationale
 
 **A standard of its own, and a new format version.** Large netlists are needed wherever a contract has to identify, store or check a circuit (inference, games, processor designs, NFTs), so this TAP depends only on TAP-02, and netlist-bound NFTs could use it as the informative §8 describes. `tapnet/1` and its netlist hash are the byte-level identity of every netlist-bound NFT and must not change. A new version byte keeps tools for `tapnet/1` from misreading a ROM as an unknown opcode, makes the file self-describing, and lets the hash rule follow the format. Keeping REF out of `tapnet/2` avoids importing circuit references whose meaning depends on a processor.
@@ -631,38 +664,6 @@ Netlist-bound NFTs (`TAP-draft-netlist-bound-nft`) use `tapnet/2` netlists throu
 
 Under that §2.5, a tool that does not support `tapnet/2` displays the netlist of a `tapnet/2` token as unverifiable, not as invalid; the reference checker of that draft does so for the `files.message` example of this TAP's vectors. `storeNetlist`, `netlistFile`, `netlistOf` and the Eval extension of that draft apply to `tapnet/1` files only (its §2.5 and §8.2 item 4), and the SHA-256 of a `tapnet/2` file is never its netlist hash, so contracts that implement them are unaffected (§8.2).
 
-## 8. Use with netlist-bound NFTs (informative)
-
-This section is informative and not part of the Specification. It describes how tokens and contracts that follow `TAP-draft-netlist-bound-nft` (called **core** in this section) could bind a token to a `tapnet/2` netlist; §1 to §7 do not depend on it. It relies on core §2.5 (Other netlist formats), part of a proposed amendment to core that is not yet merged (§8.3, Backwards Compatibility), and states no requirements of its own: the members that core §2.5 asks a format to define are specified in §2.2, which this section restates. Once core contains §2.5, a later revision of this TAP can turn the rest of this section into requirements.
-
-### 8.1 Metadata and pools
-
-The `netlist` member of the `tap` object (core §7.1) of a token whose netlist is a `tapnet/2` file would contain the following, where `format`, `netlistHash2`, `bytes` and the metric members follow §2.2:
-
-| Member | Type | Content |
-|---|---|---|
-| `format` | string | `"tapnet/2"` |
-| `netlistHash2` | string | §2.1, `0x` + 64 lowercase hexadecimal digits |
-| `bytes`, `nIn`, `nOut`, `nand`, `latch`, `romBits`, `romRecords` | numbers | the metrics of §1.4 |
-| `ramBanks`, `ramBits`, `ramReadPorts`, `ramWritePorts`, `romPorts` | numbers | the metrics of §1.4 of a file with ports (optional otherwise) |
-| `uris` | array | a non-empty array of URI strings of the file |
-
-As §2.2 requires, it would contain no `sha256`: `netlistHash2` takes its place, and `bytes` is the file length of §1.4 instead of the `tapnet/1` formula of core §7.3 item 2. It would contain `structuralHash` only for files for which `TAP-draft-netlist-structural-hash` defines one (core §7.1); the structural hash that draft defines covers `tapnet/1` files only. Pool entries (core §5.2) would carry `netlistHash2` as the netlist value. A tool that checks such a token (core §7.4) would fetch the file, check that it is a valid `tapnet/2` file, compute `netlistHash2` from it and compare that with `tap.netlist.netlistHash2` and with the pool entry, and compare the metrics. Core §2.5 requires a tool that does not support this format to display the token's netlist as unverifiable, not as invalid.
-
-### 8.2 Relation to core interfaces
-
-These would be consequences of core with §2.5 (§8.3), not new requirements on core:
-
-- At L0 (core §8.1) nothing would change: the metadata carries the hash and the URIs, and the size of the file plays no role.
-- At L1 (core §8.2), `netlistHashOf` would return `netlistHash2` for a `tapnet/2` token. A `tapnet/2` netlist hash would be **known** under the same rules as any netlist hash (core §8.2 item 4). A collection or a companion (core §8.2–§8.3) could store `tapnet/2` files under §3; the known hashes of §3 item 7 would then be its known netlist hashes.
-- `storeNetlist` would never accept a `tapnet/2` file: core §2.5 and §8.2 item 4 limit it to `tapnet/1` files whose SHA-256 is a known netlist hash (and at most 49,152 bytes long), a mint-bound contract (core §8.2) may in addition accept any valid `tapnet/1` file, which a `tapnet/2` file is not, and the SHA-256 of a `tapnet/2` file is not its netlist hash. Hence `netlistFile(netlistHash2)` and `netlistOf` would not return `tapnet/2` files; §3 is how such a file is stored and read on chain.
-- Because the file is never stored through `storeNetlist`, the Eval extension's functions would revert for a `tapnet/2` token (core §8.4 item 3), and a contract would not evaluate a `tapnet/2` file through `ITapNetlistEval`. A large netlist (any `tapnet/2` file, whatever its size) would not implement the Eval extension (`evalOf`, `stepOf`, `evalFile`, `stepFile`).
-- A dispute game (§7) about a `tapnet/2` netlist of a collection would be started only for netlists committed by a manifest of the collection (core §5) whose files were checked off chain, as §7.1 requires of every game. Whether mint-bound collections should also be eligible is Open question 9.
-
-### 8.3 The format hook in core (§2.5)
-
-Without §2.5, core assumes in several places that every netlist value is `SHA-256(file)` of a valid `tapnet/1` file: §2.2 (validity), §2.3 (the hash rule), §2.4 (metrics), §5.2 (every netlist hash in a pool has to belong to a valid `tapnet/1` file), §7.1 (`format` is `"tapnet/1"`, `sha256` is required), §7.3 items 2 and 3 (`tap.netlist.bytes` follows the `tapnet/1` size formula, and `tap.netlist.sha256` equals the pool entry), §7.4 (a tool checks the SHA-256 against `sha256`) and §8.2 item 4 (known netlist hashes and `storeNetlist`). The structural hash and bridging extensions are also written for `tapnet/1`. Core §2.5 is the one hook on which this section relies: for a netlist in a format defined under it, pool entries, `netlistHashOf` and the known netlist hashes hold that format's netlist hash, the requirements listed above that refer to `tapnet/1`, `SHA-256(file)`, `sha256` or the `bytes` formula apply with the format's validity, metrics, hash and members in their place, and `storeNetlist`, `netlistFile`, `netlistOf`, the Eval extension and TAPs written for `tapnet/1` apply to `tapnet/1` files only unless they say otherwise. §2.5 is part of a proposed amendment to core that is not yet merged (Backwards Compatibility); this TAP makes no change to core.
-
 ## Test Cases
 
 `assets/tap-draft-large-netlists/vectors.json` is generated by `make_vectors.py` from the reference implementation, reproducible byte for byte (`python3 make_vectors.py --check`), with SHA-256 `b6ba365e912f149e1ab8e292588fac7f934cdb1fa1ba6d8d1b8ac3dabfd9f2d6`. Bit strings list bit `i` at position `i`; segment tuples are `[byteOffset, firstSignal, latchOrdinal, P, D]` for files without MEM and `[byteOffset, firstSignal, latchOrdinal, P, D, M]` for files with MEM, beat-end tuples `[ordinal, root]`, and memory contents are given per bank as lists of entries. Every witness is given in full as hex in the encoding of §6.3 (`witnessHex`), with its SHA-256 and size; the chunk oracle of a case is a store holding the file of its `example` (`oracle: "file"`), an empty store (`"none"`) or a store holding chunk 0 only (`"chunk0"`). Its sections are:
@@ -719,7 +720,7 @@ The Python reference implementation is in `assets/tap-draft-large-netlists/` (MI
 - `bisect_sim.py`: the dispute of §7 between simulated parties, with a referee that holds only on-chain data (the store, the claim and the published leaves) and never looks at a party's private values, including the cheater classes listed in Test Cases; it counts rounds as Appendix D does. Its claim layer (`ClaimGame`) applies the acceptance rules of §7.1 over several disputes, and its referee optionally enforces the bounds on `T` and `K` and the two input cases;
 - `examples.py`, `make_vectors.py`, `test_tapnet2.py`, `test_ram.py`: the example files, the vector generator and 68 tests (50 in `test_tapnet2.py`, 18 in `test_ram.py`), including equivalence of `tapnet/2` files and their expansions against the independent TAP-02 evaluator `assets/tap-02/reference.py`, verification of every vector from its hex alone, and the claim rules of §7.1 (sock puppets, several challengers, bounds, input cases); `test_ram.py` checks a LATCH-built memory against the same memory built from RAM ports beat by beat, `rammix` against a direct model of its behaviour, write order, ROM read ports, the memory tree, every verifier rule of §6.1 for ports with mutations, the memory encoding of §6.3, and disputes with RAM cheaters in both roles.
 
-The Solidity reference implementation, the cartridge demo and the measurements are in the reference repository `tap-large-netlists`, which also holds a copy of this TAP and of its assets; it will be linked at a fixed commit before Review (`<REPO_URL>`, commit `<COMMIT>`). It is not deployed and has not been audited. It contains:
+The Solidity reference implementation, the cartridge demo and the measurements are in the reference repository `tap-large-netlists`, which also holds a copy of this TAP and of its assets, at commit `4fa0c0baf2c1d226b38814aed0d0f58c244cad24`: https://github.com/BruceLanLan/tap-large-netlists/tree/4fa0c0baf2c1d226b38814aed0d0f58c244cad24. It is not deployed and has not been audited. It contains:
 
 - `contracts/src/ITapLargeNetlistStore.sol` and `contracts/src/TapLargeNetlistStore.sol`: the interface of §3 and a store with one SSTORE2 data contract per chunk; which hashes are known is left to the derived contract (`knownNetlist`), and `TapLargeNetlistStoreOwned` keeps an owner-registered set for tests;
 - `contracts/src/TapLargeVerifier.sol`: `verifySegment` (§6.1, with RAM ports, ROM read ports, the `latchRoot` and `memRoot` arguments and the memory proofs), `verifyBeatEnd` for both kinds (§6.2) and `segmentBudget()` (§5.1), as view functions that read the file only through `largeInfo` and `largeChunk` of the store and take witnesses in the encoding of §6.3; `contracts/src/TapLargeHash.sol`: the hashes of §2.1 and §4;
@@ -735,7 +736,7 @@ The Solidity reference implementation, the cartridge demo and the measurements a
 
 ## Deployments
 
-This TAP depends on no deployed contract.
+This TAP depends on no deployed contract, and none of its own contracts (the store, the verifiers and the reference dispute game) is deployed yet. A testnet deployment of the store and the verifiers, with read-only steps to verify their addresses and code, will be added to this section before Review.
 
 ## Security Considerations
 
@@ -767,6 +768,10 @@ This TAP depends on no deployed contract.
 7. Invalidity proofs: all validity rules of §1.2 except items 5 and 7 are local to a record, and `S` and `nLatch` follow from an agreed `seg_m`, so the segment framework could prove that a file is invalid and void a claim instead of letting the challenger win. Should a later version define such a proof?
 8. Input inconsistency: when `inputRoot` is supplied by an input provider (§7.1, case b), should a later version define a proof that the published inputs do not match `inputRoot`, for example a bisection over the input leaves against data in blobs, so that a claim with inconsistent inputs can be voided on chain?
 9. Dispute eligibility of mint-bound collections: §8.2 starts a game about a `tapnet/2` netlist of a collection only for netlists committed by a manifest of the collection (core §5), as one form of the advance commitment that §7.1 requires. A mint-bound collection (core §8.2, part of the same proposed amendment as core §2.5, §8.3) has no manifest and records the netlist hash of each token at its mint. Should the netlists of such a collection be eligible, with the netlist hash recorded at mint as the commitment, and how would the files then be checked off chain before a game, given that a later mint can record a new hash?
+
+## Copyright
+
+Copyright and related rights waived via [CC0](../LICENSE).
 
 ## Appendix A: Sizing INT-C16 (informative)
 
@@ -833,7 +838,3 @@ An opening shows what a claim says, not that it is right; an application should 
 **Round counts.** Count a round as one move of each party of a dispute, or as one move where only one party moves. Level 1 takes one round (the challenge). Level 2 takes one commit round and at most `⌈log2(t_i − t_{i−1})⌉ ≤ ⌈log2 K⌉` bisection rounds. Level 3 takes one commit round (with the inputs), one round to reveal tuple `h`, then at most `⌈log2 h⌉` bisection rounds, or, when the tuples at `h` are equal, one move to reveal tuple `h + 1`, and finally the call. A dispute that reaches a verifier therefore takes at most `⌈log2 K⌉ + ⌈log2 h⌉ + 5` rounds, or `⌈log2 K⌉ + 6` when the tuples at `h` are equal. Here `h` is at most the number of segments `m` for the segment list, and at most `⌈nOut/256⌉` or `⌈nLatch/256⌉` for the output or state list. The test vectors' disputes that reach a verifier take 6 to 11 rounds; in the reference game a round is one transaction of each party that moves in it. Disputes about one claim run independently, so several challengers do not lengthen any one dispute.
 
 **One economic arrangement.** A claimant posts a claim with a bond; within a challenge window, anyone may challenge with an equal bond, each challenger in its own dispute; each move has a deadline, and a party that misses one loses; bonds are settled per dispute as §7.1 recommends (the claimant takes the bond of each challenger it beats, the first challenger to win takes the claimant's bond and rejects the claim, other open disputes are refunded, and an accepted claim's bond is returned). Such rules belong to an application TAP or to the game's own documentation (Open questions). The final call is usually the most expensive move, and the party whose tuple is checked pays for it. After a bisection that is always the claimant, also when the challenger is the one who cheated; only in the equal-at-`h` case is it the party with the longer list. An honest claimant can therefore spend the most gas of a dispute against a cheating challenger, once per cheating challenger. Applications should size bonds, or reimburse the winner's moves, so that the loser's bond covers at least the winner's on-chain cost including a final call at the budget's limit: in the reference game the final calls of the `large` example took up to about 4.5 million gas and a whole dispute that reached the verifier 1.4 to 5.9 million gas for all parties together, while the costliest final call measured took about 10.6 million (Appendix B). Lazy refinement keeps the off-chain cost of honest claims low: a claim publishes one leaf per `K` beats, beat leaves are computed and published only for the disputed checkpoint interval, and tuple lists and inputs only for the disputed beat. Security Considerations list the risks a game has to price in.
-
-## Copyright
-
-Copyright and related rights waived via [CC0](../LICENSE).

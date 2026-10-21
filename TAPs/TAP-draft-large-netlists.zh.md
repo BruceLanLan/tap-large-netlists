@@ -3,10 +3,11 @@ tap: TBD
 title: Large Netlists and Verifiable Execution
 description: A netlist format with mask-ROM records and RAM ports, a chunked netlist hash with a staged on-chain upload, and the commitments, one-step verifiers and dispute rules that let a contract settle disagreements about runs of netlists far larger than one transaction.
 author: Bruce (@BruceLanLan)
-discussions-to: TBD (new Idea issue)
+discussions-to: https://github.com/TapeOutProtocol/TAPs/issues/71
 status: Draft
 type: Standards
 created: 2026-10-19
+updated: 2026-10-21
 requires: TAP-02, ERC-165
 license: CC0-1.0
 ---
@@ -547,6 +548,38 @@ checkpointRoot = tree(L_0, …, L_{n−1})
 
 **长度。** 到达核对函数的争议至多用 `⌈log2 K⌉ + ⌈log2 h⌉ + 5` 轮，在 `h` 处元组相同时用 `⌈log2 K⌉ + 6` 轮；附录 D 给出计数，并说明博弈必须计入的成本。
 
+### 8. 与网表绑定 NFT 配合使用（信息性）
+
+本节是信息性的。它说明遵循 `TAP-draft-netlist-bound-nft`（本节中称为**主标准**）的代币与合约可以如何把代币绑定到 `tapnet/2` 网表；§1 至 §7 不依赖本节。本节依赖主标准 §2.5（其它网表格式），它属于对主标准的一项尚未合并的修订提案（§8.3，见向后兼容）；本节本身不提出任何要求：主标准 §2.5 要求格式定义的成员由 §2.2 规定，本节只是复述。主标准包含 §2.5 之后，本 TAP 的后续修订可以把本节其余部分改为要求。
+
+#### 8.1 元数据与池
+
+网表为 `tapnet/2` 文件的代币，其 `tap` 对象（主标准 §7.1）的 `netlist` 成员将包含下列成员，其中 `format`、`netlistHash2`、`bytes` 与各指标成员遵循 §2.2：
+
+| 成员 | 类型 | 内容 |
+|---|---|---|
+| `format` | 字符串 | `"tapnet/2"` |
+| `netlistHash2` | 字符串 | §2.1，`0x` 加 64 个小写十六进制数字 |
+| `bytes`、`nIn`、`nOut`、`nand`、`latch`、`romBits`、`romRecords` | 数字 | §1.4 的指标 |
+| `ramBanks`、`ramBits`、`ramReadPorts`、`ramWritePorts`、`romPorts` | 数字 | 含端口文件的 §1.4 指标（否则可选） |
+| `uris` | 数组 | 文件的非空 URI 字符串数组 |
+
+按 §2.2 的要求，它不包含 `sha256`：由 `netlistHash2` 取代；`bytes` 是 §1.4 的文件长度，而不是主标准 §7.3 第 2 条的 `tapnet/1` 公式。只有当 `TAP-draft-netlist-structural-hash` 为该文件定义了结构哈希时，它才包含 `structuralHash`（主标准 §7.1）；该草案定义的结构哈希只涵盖 `tapnet/1` 文件。池条目（主标准 §5.2）将以 `netlistHash2` 作为网表值。核对这类代币的工具（主标准 §7.4）将取得文件，检查它是有效的 `tapnet/2` 文件，由它算出 `netlistHash2` 并与 `tap.netlist.netlistHash2` 及池条目比较，并比较各项指标。主标准 §2.5 要求不支持该格式的工具把该代币的网表显示为不可核验，而不是无效。
+
+#### 8.2 与主标准接口的关系
+
+以下将是主标准加上 §2.5（§8.3）后的推论，不是对主标准的新要求：
+
+- L0（主标准 §8.1）将不变：元数据携带哈希与 URI，文件大小不起作用。
+- 在 L1（主标准 §8.2），`netlistHashOf` 对 `tapnet/2` 代币将返回 `netlistHash2`。`tapnet/2` 网表哈希将按与任何网表哈希相同的规则成为**已知**（主标准 §8.2 第 4 条）。集合合约或伴随合约（主标准 §8.2–§8.3）可以按 §3 存储 `tapnet/2` 文件；此时 §3 第 7 条的已知哈希将是其已知网表哈希。
+- `storeNetlist` 将永远不接受 `tapnet/2` 文件：主标准 §2.5 与 §8.2 第 4 条把它限定为 SHA-256 为已知网表哈希（且长度至多 49,152 字节）的 `tapnet/1` 文件；铸造即绑定合约（主标准 §8.2）还可以接受任何有效的 `tapnet/1` 文件，而 `tapnet/2` 文件不是；并且 `tapnet/2` 文件的 SHA-256 不是它的网表哈希。因此 `netlistFile(netlistHash2)` 与 `netlistOf` 将不返回 `tapnet/2` 文件；这类文件在链上的存储与读取方式见 §3。
+- 由于文件从不通过 `storeNetlist` 存储，Eval 扩展的函数对 `tapnet/2` 代币将会回滚（主标准 §8.4 第 3 条），合约也不会通过 `ITapNetlistEval` 求值 `tapnet/2` 文件。大网表（任何 `tapnet/2` 文件，不论大小）将不实现 Eval 扩展（`evalOf`、`stepOf`、`evalFile`、`stepFile`）。
+- 关于集合中 `tapnet/2` 网表的争议博弈（§7），将只为由该集合的清单承诺（主标准 §5）、且其文件已在链下检查过的网表启动，这正是 §7.1 对每个博弈的要求。铸造即绑定集合是否也应有资格，见待定问题 9。
+
+#### 8.3 主标准中的格式钩子（§2.5）
+
+没有 §2.5 时，主标准在若干处假定每个网表值都是有效 `tapnet/1` 文件的 `SHA-256(file)`：§2.2（有效性）、§2.3（哈希规则）、§2.4（指标）、§5.2（池中每个网表哈希必须属于有效的 `tapnet/1` 文件）、§7.1（`format` 为 `"tapnet/1"`，`sha256` 必需）、§7.3 第 2、3 条（`tap.netlist.bytes` 符合 `tapnet/1` 的大小公式，`tap.netlist.sha256` 等于池条目）、§7.4（工具用 `sha256` 核对 SHA-256）以及 §8.2 第 4 条（已知网表哈希与 `storeNetlist`）。结构哈希扩展与跨链扩展也是按 `tapnet/1` 写的。主标准 §2.5 就是本节所依赖的那一个钩子：对按它定义的格式的网表，池条目、`netlistHashOf` 与已知网表哈希存放该格式的网表哈希；上面列出的、涉及 `tapnet/1`、`SHA-256(file)`、`sha256` 或 `bytes` 公式的要求，以该格式的有效性、指标、哈希与成员替换后适用；`storeNetlist`、`netlistFile`、`netlistOf`、Eval 扩展以及为 `tapnet/1` 编写的 TAP，除非另有规定，只适用于 `tapnet/1` 文件。§2.5 属于对主标准的一项尚未合并的修订提案（见向后兼容）；本 TAP 不对主标准作任何改动。
+
 ## 设计理由
 
 **一份独立标准，一个新的格式版本。** 凡是合约需要标识、存储或核对电路的地方（推理、游戏、处理器设计、NFT）都需要大网表，所以本 TAP 只依赖 TAP-02，网表绑定 NFT 可以按信息性的 §8 所述使用它。`tapnet/1` 及其网表哈希是每个网表绑定 NFT 的字节级身份，不能改变。新的版本字节避免 `tapnet/1` 的工具把 ROM 误读为未知操作码，使文件自描述，并让哈希规则跟随格式。把 REF 排除在 `tapnet/2` 之外，避免引入意义取决于处理器的电路引用。
@@ -633,38 +666,6 @@ checkpointRoot = tree(L_0, …, L_{n−1})
 
 按该 §2.5，不支持 `tapnet/2` 的工具把 `tapnet/2` 代币的网表显示为不可核验，而不是无效；该草案的参考检查器对本 TAP 向量中的 `files.message` 示例正是如此处理。该草案的 `storeNetlist`、`netlistFile`、`netlistOf` 与 Eval 扩展只适用于 `tapnet/1` 文件（其 §2.5 与 §8.2 第 4 条），而 `tapnet/2` 文件的 SHA-256 从来不是它的网表哈希，因此实现这些函数的合约不受影响（§8.2）。
 
-## 8. 与网表绑定 NFT 配合使用（信息性）
-
-本节是信息性的，不属于规范。它说明遵循 `TAP-draft-netlist-bound-nft`（本节中称为**主标准**）的代币与合约可以如何把代币绑定到 `tapnet/2` 网表；§1 至 §7 不依赖本节。本节依赖主标准 §2.5（其它网表格式），它属于对主标准的一项尚未合并的修订提案（§8.3，见向后兼容）；本节本身不提出任何要求：主标准 §2.5 要求格式定义的成员由 §2.2 规定，本节只是复述。主标准包含 §2.5 之后，本 TAP 的后续修订可以把本节其余部分改为要求。
-
-### 8.1 元数据与池
-
-网表为 `tapnet/2` 文件的代币，其 `tap` 对象（主标准 §7.1）的 `netlist` 成员将包含下列成员，其中 `format`、`netlistHash2`、`bytes` 与各指标成员遵循 §2.2：
-
-| 成员 | 类型 | 内容 |
-|---|---|---|
-| `format` | 字符串 | `"tapnet/2"` |
-| `netlistHash2` | 字符串 | §2.1，`0x` 加 64 个小写十六进制数字 |
-| `bytes`、`nIn`、`nOut`、`nand`、`latch`、`romBits`、`romRecords` | 数字 | §1.4 的指标 |
-| `ramBanks`、`ramBits`、`ramReadPorts`、`ramWritePorts`、`romPorts` | 数字 | 含端口文件的 §1.4 指标（否则可选） |
-| `uris` | 数组 | 文件的非空 URI 字符串数组 |
-
-按 §2.2 的要求，它不包含 `sha256`：由 `netlistHash2` 取代；`bytes` 是 §1.4 的文件长度，而不是主标准 §7.3 第 2 条的 `tapnet/1` 公式。只有当 `TAP-draft-netlist-structural-hash` 为该文件定义了结构哈希时，它才包含 `structuralHash`（主标准 §7.1）；该草案定义的结构哈希只涵盖 `tapnet/1` 文件。池条目（主标准 §5.2）将以 `netlistHash2` 作为网表值。核对这类代币的工具（主标准 §7.4）将取得文件，检查它是有效的 `tapnet/2` 文件，由它算出 `netlistHash2` 并与 `tap.netlist.netlistHash2` 及池条目比较，并比较各项指标。主标准 §2.5 要求不支持该格式的工具把该代币的网表显示为不可核验，而不是无效。
-
-### 8.2 与主标准接口的关系
-
-以下将是主标准加上 §2.5（§8.3）后的推论，不是对主标准的新要求：
-
-- L0（主标准 §8.1）将不变：元数据携带哈希与 URI，文件大小不起作用。
-- 在 L1（主标准 §8.2），`netlistHashOf` 对 `tapnet/2` 代币将返回 `netlistHash2`。`tapnet/2` 网表哈希将按与任何网表哈希相同的规则成为**已知**（主标准 §8.2 第 4 条）。集合合约或伴随合约（主标准 §8.2–§8.3）可以按 §3 存储 `tapnet/2` 文件；此时 §3 第 7 条的已知哈希将是其已知网表哈希。
-- `storeNetlist` 将永远不接受 `tapnet/2` 文件：主标准 §2.5 与 §8.2 第 4 条把它限定为 SHA-256 为已知网表哈希（且长度至多 49,152 字节）的 `tapnet/1` 文件；铸造即绑定合约（主标准 §8.2）还可以接受任何有效的 `tapnet/1` 文件，而 `tapnet/2` 文件不是；并且 `tapnet/2` 文件的 SHA-256 不是它的网表哈希。因此 `netlistFile(netlistHash2)` 与 `netlistOf` 将不返回 `tapnet/2` 文件；这类文件在链上的存储与读取方式见 §3。
-- 由于文件从不通过 `storeNetlist` 存储，Eval 扩展的函数对 `tapnet/2` 代币将会回滚（主标准 §8.4 第 3 条），合约也不会通过 `ITapNetlistEval` 求值 `tapnet/2` 文件。大网表（任何 `tapnet/2` 文件，不论大小）将不实现 Eval 扩展（`evalOf`、`stepOf`、`evalFile`、`stepFile`）。
-- 关于集合中 `tapnet/2` 网表的争议博弈（§7），将只为由该集合的清单承诺（主标准 §5）、且其文件已在链下检查过的网表启动，这正是 §7.1 对每个博弈的要求。铸造即绑定集合是否也应有资格，见待定问题 9。
-
-### 8.3 主标准中的格式钩子（§2.5）
-
-没有 §2.5 时，主标准在若干处假定每个网表值都是有效 `tapnet/1` 文件的 `SHA-256(file)`：§2.2（有效性）、§2.3（哈希规则）、§2.4（指标）、§5.2（池中每个网表哈希必须属于有效的 `tapnet/1` 文件）、§7.1（`format` 为 `"tapnet/1"`，`sha256` 必需）、§7.3 第 2、3 条（`tap.netlist.bytes` 符合 `tapnet/1` 的大小公式，`tap.netlist.sha256` 等于池条目）、§7.4（工具用 `sha256` 核对 SHA-256）以及 §8.2 第 4 条（已知网表哈希与 `storeNetlist`）。结构哈希扩展与跨链扩展也是按 `tapnet/1` 写的。主标准 §2.5 就是本节所依赖的那一个钩子：对按它定义的格式的网表，池条目、`netlistHashOf` 与已知网表哈希存放该格式的网表哈希；上面列出的、涉及 `tapnet/1`、`SHA-256(file)`、`sha256` 或 `bytes` 公式的要求，以该格式的有效性、指标、哈希与成员替换后适用；`storeNetlist`、`netlistFile`、`netlistOf`、Eval 扩展以及为 `tapnet/1` 编写的 TAP，除非另有规定，只适用于 `tapnet/1` 文件。§2.5 属于对主标准的一项尚未合并的修订提案（见向后兼容）；本 TAP 不对主标准作任何改动。
-
 ## 测试用例
 
 `assets/tap-draft-large-netlists/vectors.json` 由 `make_vectors.py` 从参考实现生成，可逐字节复现（`python3 make_vectors.py --check`），SHA-256 为 `b6ba365e912f149e1ab8e292588fac7f934cdb1fa1ba6d8d1b8ac3dabfd9f2d6`。位串在位置 `i` 列出第 `i` 位；段元组对不带 MEM 的文件写作 `[byteOffset, firstSignal, latchOrdinal, P, D]`，对带 MEM 的文件写作 `[byteOffset, firstSignal, latchOrdinal, P, D, M]`，拍末元组写作 `[ordinal, root]`，存储器内容按存储体以项的列表给出。每个见证都以 §6.3 的编码完整给出十六进制内容（`witnessHex`），并附其 SHA-256 与大小；用例的分块来源是持有其 `example` 文件的存储合约（`oracle: "file"`）、空的存储合约（`"none"`）或只持有第 0 块的存储合约（`"chunk0"`）。各节为：
@@ -721,7 +722,7 @@ Python 参考实现位于 `assets/tap-draft-large-netlists/`（MIT），是无�
 - `bisect_sim.py`：模拟双方之间 §7 的争议，裁判只持有链上数据（存储合约、声明与公布的叶），从不查看任何一方的私有值，包括测试用例一节列出的各类作弊者；它按附录 D 的方式计数轮数。其声明层（`ClaimGame`）在多场争议之上应用 §7.1 的声明成立规则，其裁判可选地执行 `T` 与 `K` 的上界以及两种输入情形；
 - `examples.py`、`make_vectors.py`、`test_tapnet2.py`、`test_ram.py`：样例文件、向量生成器与 68 个测试（`test_tapnet2.py` 50 个，`test_ram.py` 18 个），包括用独立的 TAP-02 求值器 `assets/tap-02/reference.py` 检查 `tapnet/2` 文件与其展开结果的等价性、只凭十六进制内容核对每个向量，以及 §7.1 的声明规则（马甲、多个挑战者、上界、输入情形）；`test_ram.py` 把用 LATCH 搭的存储器与用 RAM 端口搭的同一存储器逐拍比对，把 `rammix` 与其行为的直接模型比对，并检查写入顺序、ROM 读口、存储树、§6.1 中关于端口的每条核对规则（含变异）、§6.3 的存储编码，以及双方角色下有 RAM 作弊者的争议。
 
-Solidity 参考实现、卡带演示与实测数据位于参考仓库 `tap-large-netlists`，其中也有本 TAP 及其资产的副本；进入 Review 之前将以固定提交链接（`<REPO_URL>`，提交 `<COMMIT>`）。它没有部署，也没有经过审计。其内容：
+Solidity 参考实现、卡带演示与实测数据位于参考仓库 `tap-large-netlists`，其中也有本 TAP 及其资产的副本，提交 `4fa0c0baf2c1d226b38814aed0d0f58c244cad24`：https://github.com/BruceLanLan/tap-large-netlists/tree/4fa0c0baf2c1d226b38814aed0d0f58c244cad24。它没有部署，也没有经过审计。其内容：
 
 - `contracts/src/ITapLargeNetlistStore.sol` 与 `contracts/src/TapLargeNetlistStore.sol`：§3 的接口，以及每块一个 SSTORE2 数据合约的存储合约；哪些哈希是已知的交给派生合约决定（`knownNetlist`），`TapLargeNetlistStoreOwned` 为测试保存一个由所有者登记的集合；
 - `contracts/src/TapLargeVerifier.sol`：`verifySegment`（§6.1，含 RAM 端口、ROM 读口、`latchRoot` 与 `memRoot` 两个参数以及存储证明）、两种类型的 `verifyBeatEnd`（§6.2）与 `segmentBudget()`（§5.1），都是 view 函数，只通过存储合约的 `largeInfo` 与 `largeChunk` 读取文件，见证采用 §6.3 的编码；`contracts/src/TapLargeHash.sol`：§2.1 与 §4 的哈希；
@@ -737,7 +738,7 @@ Solidity 参考实现、卡带演示与实测数据位于参考仓库 `tap-large
 
 ## 部署
 
-本 TAP 不依赖任何已部署的合约。
+本 TAP 不依赖任何已部署的合约，它自己的合约（存储合约、核对函数合约与参考争议游戏）目前也均未部署。进入 Review 之前，本节将加入存储合约与核对函数合约的一次测试网部署，并附上只读核验其地址与代码的步骤。
 
 ## 安全考虑
 
@@ -769,6 +770,10 @@ Solidity 参考实现、卡带演示与实测数据位于参考仓库 `tap-large
 7. 无效性证明：除 §1.2 第 5、7 条外，所有有效性规则都只涉及单条记录，而 `S` 与 `nLatch` 可由双方一致的 `seg_m` 得出，所以分段框架可以证明文件无效，并让声明作废，而不是判挑战者赢。以后的版本是否应定义这样的证明？
 8. 输入不一致：当 `inputRoot` 由输入提供者给出时（§7.1 情形 b），以后的版本是否应定义一种证明，证明公布的输入与 `inputRoot` 不符（例如对照 blob 中的数据在输入叶上二分），使输入不一致的声明可以在链上作废？
 9. 铸造即绑定集合的争议资格：§8.2 只为由集合清单（主标准 §5）承诺的网表启动关于该集合 `tapnet/2` 网表的博弈，这是 §7.1 所要求的事先承诺的一种形式。铸造即绑定集合（主标准 §8.2，与主标准 §2.5 属于同一项修订提案，见 §8.3）没有清单，而是在每个代币铸造时记录其网表哈希。这种集合的网表是否应有资格，以铸造时记录的网表哈希作为承诺？若是，既然以后的铸造可能记录新的哈希，博弈之前应如何在链下检查这些文件？
+
+## 版权
+
+版权及相关权利依 [CC0](../LICENSE) 放弃。
 
 ## 附录 A：INT-C16 的规模估算（信息性）
 
@@ -835,7 +840,3 @@ Solidity 参考实现、卡带演示与实测数据位于参考仓库 `tap-large
 **轮数。** 把一轮计为一场争议的每方各走一步，或只有一方行动时的一步。第 1 层用一轮（挑战）。第 2 层用一轮承诺，加至多 `⌈log2(t_i − t_{i−1})⌉ ≤ ⌈log2 K⌉` 轮二分。第 3 层用一轮承诺（含输入）、一轮公布第 `h` 个元组，然后至多 `⌈log2 h⌉` 轮二分，或在 `h` 处元组相同时用一步公布第 `h + 1` 个元组，最后是调用。因此到达核对函数的争议至多用 `⌈log2 K⌉ + ⌈log2 h⌉ + 5` 轮，在 `h` 处元组相同时用 `⌈log2 K⌉ + 6` 轮。这里对段列表 `h` 至多为段数 `m`，对输出或状态列表至多为 `⌈nOut/256⌉` 或 `⌈nLatch/256⌉`。测试向量中到达核对函数的争议用了 6 到 11 轮；在参考博弈中，一轮就是该轮中行动的每一方各发一笔交易。同一声明的各场争议彼此独立进行，所以多个挑战者不会加长其中任何一场。
 
 **一种经济安排。** 声明者附保证金提出声明；在挑战窗口内任何人可以附同等保证金挑战，每个挑战者各有一场争议；每一步有截止时间，错过的一方输；保证金按 §7.1 的建议逐场结算（声明者得到它击败的每个挑战者的保证金，第一个获胜的挑战者得到声明者的保证金并否决声明，其他未决争议退还保证金，成立的声明退还其保证金）。这类规则属于应用 TAP 或博弈自己的文档（见待定问题）。最终调用通常是最贵的一步，由被核对元组的所属方付费。二分之后，这总是声明者，即使作弊的是挑战者；只有在 `h` 处相同的情形下才是列表较长的一方。因此诚实声明者在对抗作弊挑战者时，可能要付出整场争议中最多的 gas，每个作弊挑战者一次。应用应确定保证金（或报销赢方的行动费用），使输方的保证金至少覆盖赢方的链上成本，包括一次达到预算上限的最终调用：在参考博弈中，`large` 样例的最终调用至多约 450 万 gas，一整场到达核对函数的争议各方合计 140 万至 590 万 gas，而实测最贵的最终调用约 1,060 万（附录 B）。按需细化使诚实声明的链下成本保持很低：声明每 `K` 拍只公布一片叶，拍叶只为被争议的检查点区间计算和公布，元组列表与输入只为被争议的那一拍计算和公布。博弈必须计入的风险列在安全考虑一节。
-
-## 版权
-
-版权及相关权利依 [CC0](../LICENSE) 放弃。
