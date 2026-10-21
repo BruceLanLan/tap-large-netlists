@@ -18,7 +18,7 @@ A draft TapeOut standard (TAP) and its reference implementation for netlists far
 - **commitments, a canonical segmentation and one-step verifiers** that check one segment of one beat (at most about 6,000 gate-equivalents under the default budget) against the stored file;
 - **dispute rules** (claim data, data availability, several challengers, acceptance, bisection, timeouts) so that a wrong claim about a run is rejected if one party that computed correctly challenges it in time.
 
-Use cases: verifiable AI inference (sized on the INT-C16 language-model chip, about 1.1 million gates per beat), provable game results (the TAPBOY-8 cartridge demo), large designs for TapeOut processors, and NFTs (use with the netlist-bound NFT draft, described in the informative §8 of the TAP).
+Use cases: verifiable AI inference (sized on the INT-C16 language-model chip, about 1.1 million gates per beat; a small end-to-end example is the [inference demo](demo/inference/README.md)), provable game results (the TAPBOY-8 cartridge demo), large designs for TapeOut processors, and NFTs (use with the netlist-bound NFT draft, described in the informative §8 of the TAP).
 
 The specification is [`TAPs/TAP-draft-large-netlists.md`](TAPs/TAP-draft-large-netlists.md) (English, normative); [`TAPs/TAP-draft-large-netlists.zh.md`](TAPs/TAP-draft-large-netlists.zh.md) is an informative Chinese translation. The TAP number is assigned by the TAPs editors; until then the draft is called `TAP-draft-large-netlists`.
 
@@ -31,6 +31,7 @@ The specification is [`TAPs/TAP-draft-large-netlists.md`](TAPs/TAP-draft-large-n
 | `assets/tap-02/reference.py` | Copy of the TAP-02 reference evaluator of the TAPs repository, used as an independent evaluator in the tests | MIT |
 | `contracts/` | Foundry project: store, verifiers, hash library, an informative dispute game, tests and test data | CC0 (SPDX headers) |
 | `demo/cartridge/` | TAPBOY-8, an 8-bit CPU with a game in ROM, as one `tapnet/2` file, with a score dispute | MIT |
+| `demo/inference/` | A quantized 64-16-10 digit classifier as one `tapnet/2` file (Verilog → `verilog2tapnet`), verified against its integer model, with disputes about an inference in Python and in Foundry | MIT |
 | `measurements/` | L1 data fee snapshot (Base, X Layer) and the scripts that re-run the attacks found in internal review | MIT / CC0 |
 | `tools/verilog2tapnet/` | Verilog → `tapnet/1` / `tapnet/2` converter (Yosys), with ROM records, ROM read ports and RAM ports, validated beat by beat against Icarus Verilog | MIT |
 | `docs/TESTING.md` | Exact commands and current results | MIT |
@@ -43,10 +44,11 @@ Python 3.9+ (standard library only) and Foundry 1.8.3. `contracts/lib/forge-std`
 ( cd assets/tap-draft-large-netlists && python3 make_vectors.py --check && python3 test_tapnet2.py && python3 test_ram.py )
 ( cd contracts && forge test )
 ( cd demo/cartridge && python3 test_cartridge.py )
+( cd demo/inference && python3 test_inference.py )
 ( cd tools/verilog2tapnet && python3 -m unittest discover -s tests -v )   # needs yosys and iverilog
 ```
 
-Current results: 68 Python tests (50 + 18 for RAM ports), 18 cartridge tests, 89 Foundry tests (including 118 end-to-end dispute scenarios, every vector replayed and a 3,500-case differential corpus) and 21 tests of the Verilog converter, all passing ([`docs/TESTING.md`](docs/TESTING.md)). `vectors.json` SHA-256: `b6ba365e912f149e1ab8e292588fac7f934cdb1fa1ba6d8d1b8ac3dabfd9f2d6`.
+Current results: 68 Python tests (50 + 18 for RAM ports), 18 cartridge tests, 12 inference-demo tests, 96 Foundry tests (including 125 end-to-end dispute scenarios, every vector replayed and a 3,500-case differential corpus) and 21 tests of the Verilog converter, all passing ([`docs/TESTING.md`](docs/TESTING.md)). `vectors.json` SHA-256: `b6ba365e912f149e1ab8e292588fac7f934cdb1fa1ba6d8d1b8ac3dabfd9f2d6`.
 
 ### Key figures (measured, see Appendix B of the TAP)
 
@@ -55,6 +57,7 @@ Current results: 68 Python tests (50 + 18 for RAM ports), 18 cartridge tests, 89
 - The TAPBOY-8 cartridge with RAM ports: 5,781 bytes, one chunk, one segment per beat of about 0.65 million gas, upload about 1.4 million gas (with LATCH-based RAM: 104,076 bytes, 7 chunks, 3 segments of up to 5.5 million gas, upload about 22.8 million); a score dispute through the reference game costs about 2.3 to 2.4 million gas for all parties together.
 - Storing a 16 KiB chunk: about 3.7 million gas per transaction; a 7.5 MB file (456 chunks): about 1.67 × 10^9 gas.
 - A dispute that reaches the verifier: 1.4 to 5.9 million gas for all parties together in the reference scenarios.
+- The inference demo ([`demo/inference/`](demo/inference/README.md)): a 64-16-10 digit classifier of 88,854 bytes (6 chunks, three segments of up to 6,000 gate-equivalents per beat, T = 92 beats per inference) equals its integer model on every beat of 60 test digits; disputes about one inference cost 2.6 to 6.7 million gas for all parties together, the costliest move 4,961,813 gas.
 
 The TAP makes no claim about the monetary cost of uploads or disputes.
 
@@ -90,13 +93,13 @@ X [@BruceBlue](https://x.com/BruceBlue) · GitHub [@BruceLanLan](https://github.
 - **承诺、规范分段与单步核对函数**：对照已存储的文件核对某一拍的某一段（默认预算下至多约 6,000 门当量）；
 - **争议规则**（声明数据、数据可获取性、多个挑战者、声明成立、二分、超时）：只要有一个正确计算的一方及时挑战，关于一次运行的错误声明就会被否决。
 
-用途：可验证的 AI 推理（以 INT-C16 语言模型芯片估算规模，每拍约 110 万门）、可证明的游戏结果（TAPBOY-8 卡带演示）、面向 TapeOut 处理器的大型设计，以及 NFT（与网表绑定 NFT 草案的可选配合，见 TAP 第 8 节）。
+用途：可验证的 AI 推理（以 INT-C16 语言模型芯片估算规模，每拍约 110 万门；一个端到端的小例子见[推理演示](demo/inference/README.md)：64-16-10 手写数字分类器编成一个 88,854 字节的 `tapnet/2` 文件，与整数模型逐拍一致，关于一次推理的争议在 Python 与 Foundry 中都由一次核对调用裁决）、可证明的游戏结果（TAPBOY-8 卡带演示）、面向 TapeOut 处理器的大型设计，以及 NFT（与网表绑定 NFT 草案的可选配合，见 TAP 第 8 节）。
 
 规范文本是 [`TAPs/TAP-draft-large-netlists.md`](TAPs/TAP-draft-large-netlists.md)（英文，规范性）；[`TAPs/TAP-draft-large-netlists.zh.md`](TAPs/TAP-draft-large-netlists.zh.md) 是仅供参考的中文译本。TAP 编号由 TAPs 编辑分配，在此之前草案名为 `TAP-draft-large-netlists`。
 
 ### 运行测试
 
-需要 Python 3.9+（只用标准库）与 Foundry 1.8.3。`contracts/lib/forge-std` 不随仓库提交，见 [`contracts/lib/README.md`](contracts/lib/README.md)。命令与当前结果见 [`docs/TESTING.md`](docs/TESTING.md)：Python 68 项（其中 RAM 端口 18 项）、卡带 18 项、Foundry 89 项（包括 118 个端到端争议场景、全部向量的重放与 3,500 个用例的差分语料）、Verilog 转换器 21 项，全部通过。
+需要 Python 3.9+（只用标准库）与 Foundry 1.8.3。`contracts/lib/forge-std` 不随仓库提交，见 [`contracts/lib/README.md`](contracts/lib/README.md)。命令与当前结果见 [`docs/TESTING.md`](docs/TESTING.md)：Python 68 项（其中 RAM 端口 18 项）、卡带 18 项、推理演示 12 项、Foundry 96 项（包括 125 个端到端争议场景、全部向量的重放与 3,500 个用例的差分语料）、Verilog 转换器 21 项，全部通过。
 
 ### Verilog 转 `tapnet`
 

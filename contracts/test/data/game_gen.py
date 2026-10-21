@@ -16,7 +16,11 @@ files with RAM ports (MEM): `ram16` (TINY, case (a)), `rammix` (default, case (b
 bisect_sim (a RAM read lie, a forged RAM write, a write-data gate lie, a LATCH lie, a lie in beat 0) and a claimant
 that cannot open the agreed stateRoot_t, `dodge`, the TAPBOY-8 cartridge of demo/cartridge (default budget,
 case (b), T = 651, K = 32) with the score disputes of demo/cartridge/dispute_demo.py, and `legacy`, the LATCH-RAM
-build of the same cartridge (no MEM; build/legacy/dodge.tapnet2, same inputs, K and budget).
+build of the same cartridge (no MEM; build/legacy/dodge.tapnet2, same inputs, K and budget), and `inference`,
+the quantized digit classifier of demo/inference (ROM weights, no MEM, default budget, case (b), T = 92, K = 8,
+three segments per beat) with the disputes of demo/inference/mlp_dispute.py (a class lie and an accumulator lie
+by a gate, an accumulator lie by a state bit, the two gate cheaters as challengers, and an accumulator lie in the
+middle segment of the beat, so that the final call lands on each of the three segments).
 
 Regression for M forgery (files without MEM, where M is not committed, §4.5): bisect_sim's MForger (cheat kind
 "m_forgery": a lied output plus garbage in the M of its last segment tuple) in both roles on message, large and
@@ -58,6 +62,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "..", "..", "assets", "tap-draft-large-netlists"))
 sys.path.insert(0, os.path.join(HERE, "..", "..", "..", "demo", "cartridge"))
+sys.path.insert(0, os.path.join(HERE, "..", "..", "..", "demo", "inference"))
 
 import bisect_sim as bs  # noqa: E402
 import tapnet2 as t2  # noqa: E402
@@ -482,6 +487,15 @@ def scenarios():
     out.append(("legacy/A_honest_unchallenged", 5, None, None, None, None))
     out.append(("legacy/m_forgery_as_claimant", 5, lc["m_forgery"], None, None, None))
     out.append(("legacy/m_forgery_as_challenger", 5, None, lc["m_forgery"], None, None))
+    # the digit classifier of demo/inference: the disputes of demo/inference/mlp_dispute.py (A to F)
+    ic = inference_setup()[5]
+    out.append(("inference/A_honest_unchallenged", 6, None, None, None, None))
+    out.append(("inference/B_class_gate_as_claimant", 6, ic["class"], None, None, None))
+    out.append(("inference/C_acc_gate_as_claimant", 6, ic["acc_gate"], None, None, None))
+    out.append(("inference/D_acc_state_as_claimant", 6, ic["acc_state"], None, None, None))
+    out.append(("inference/E_class_gate_as_challenger", 6, None, ic["class"], None, None))
+    out.append(("inference/F_acc_gate_as_challenger", 6, None, ic["acc_gate"], None, None))
+    out.append(("inference/G_acc_gate_mid_as_claimant", 6, ic["acc_gate_mid"], None, None, None))
     return out
 
 
@@ -520,6 +534,18 @@ def legacy_setup():
     return _LEGACY["v"]
 
 
+_INFERENCE = {}
+
+
+def inference_setup():
+    """(data, nl, inputs, K, budget, cheats) of the digit classifier game of demo/inference/mlp_dispute.py."""
+    if not _INFERENCE:
+        import mlp_dispute as mi
+        s = mi.setup()
+        _INFERENCE["v"] = (s["nl"].data, s["nl"], s["inputs"], mi.K, mi.BUDGET, s["cheats"])
+    return _INFERENCE["v"]
+
+
 class NoOpening(bs.Party):
     """A cheating claimant that does not reveal a valid opening of the agreed stateRoot_t at level 3."""
 
@@ -544,6 +570,8 @@ class Setup:
             self.data, self.nl, self.inputs, self.K, self.budget, self.cheats = dodge_setup()
         elif ex == "legacy":
             self.data, self.nl, self.inputs, self.K, self.budget, self.cheats = legacy_setup()
+        elif ex == "inference":
+            self.data, self.nl, self.inputs, self.K, self.budget, self.cheats = inference_setup()
         else:
             self.data, self.nl, self.inputs, self.K, self.budget, self.cheats = bs.scenario_setup(ex)
         self.store, self.nh2 = t2.oracle_for(self.data)
@@ -666,8 +694,8 @@ def multi_scenarios(setups):
 def main():
     setups = {"message": Setup("message", CASE_A), "large": Setup("large", CASE_B),
               "ram16": Setup("ram16", CASE_A), "rammix": Setup("rammix", CASE_B), "dodge": Setup("dodge", CASE_B),
-              "legacy": Setup("legacy", CASE_B)}
-    games = [setups[k] for k in ("message", "large", "ram16", "rammix", "dodge", "legacy")]
+              "legacy": Setup("legacy", CASE_B), "inference": Setup("inference", CASE_B)}
+    games = [setups[k] for k in ("message", "large", "ram16", "rammix", "dodge", "legacy", "inference")]
     recs = []
     for sc in scenarios():
         name, gi, ccl, cch, stop, index = sc[:6]

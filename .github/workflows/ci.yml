@@ -23,6 +23,7 @@ jobs:
         suite:
           - { name: assets,    dir: assets/tap-draft-large-netlists, cmd: "python make_vectors.py --check && python test_tapnet2.py && python test_ram.py" }
           - { name: cartridge, dir: demo/cartridge,                  cmd: "python test_cartridge.py" }
+          - { name: inference, dir: demo/inference,                  cmd: "python test_inference.py && python mlp_report.py" }
           - { name: fixtures,  dir: contracts/test/data,             cmd: "python gen_diff.py && python game_gen.py" }
           - { name: attacks,   dir: measurements/attacks,            cmd: "python attack1.py && python attack2.py && python attack3.py" }
     steps:
@@ -74,3 +75,6 @@ jobs:
       - name: Unit tests (convert, validate beat by beat against iverilog, RAM contents, rejections)
         working-directory: tools/verilog2tapnet
         run: python -m unittest discover -s tests -v
+      - name: Inference demo (a fresh conversion of rtl/mlp_digits.v behaves like the integer model)
+        working-directory: demo/inference
+        run: python -m unittest -v test_inference.ConverterTests

@@ -4,6 +4,28 @@ All notable changes to this repository. The TAP text is a draft; its number is a
 
 ## Unreleased — 2026-10-21
 
+### Demo (`demo/inference/`)
+
+- New verifiable-inference demonstration: a 64-16-10 MLP for the scikit-learn digits (int8 weights, 4-bit inputs
+  and hidden activations, 20-bit accumulators; float test accuracy 98.89 %, integer 97.78 %), written in Verilog
+  from the weights and converted with `tools/verilog2tapnet` into one `tapnet/2` file of 88,854 bytes (6 chunks,
+  12,276 NAND, 421 LATCH, 2 ROM records; T = 92 beats per inference, about 12,900 gate-equivalents and three
+  canonical segments per beat). The netlist equals the integer model on every beat of 60 test digits. Seven
+  dispute scenarios (an honest claim; a class lie and two accumulator lies by a gate, one in each segment of a
+  beat; an accumulator lie by a state bit; two cheaters as challengers) run in the Python referee and on chain in
+  the reference game: every cheater loses in exactly one verifier call; the costliest move is 4,961,813 gas.
+  `test_inference.py` (12 tests), `mlp_report.py` (`build/numbers.json`), README in English and Chinese. A
+  demonstration, not a deployed service and not a claim about any production model.
+
+### Reference implementation
+
+- `contracts/test/data/game_gen.py` and `test/game/E2E.t.sol`: seventh game `inference` (case (b), default budget)
+  with the seven scenarios (`inference/*`); `test_inference_gasPerMove` writes one row per transaction to
+  `test/data/inference_gas.csv`. E2E now 56 tests, 125 scenarios; Foundry total 96 tests. The rows of the other
+  games in `game_gas.csv` are unchanged.
+- CI: a Python matrix suite `inference` (`test_inference.py`, `mlp_report.py`) and, in the `verilog2tapnet` job, a
+  fresh conversion of the inference circuit checked against the integer model.
+
 ### Standard (`TAPs/`)
 
 - New normative §2.2 (Metadata members): for a netlist-bound NFT whose netlist is a `tapnet/2` file,

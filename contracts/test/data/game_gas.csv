@@ -111,6 +111,13 @@ dodge/F_ram_read_as_challenger,3,1,1,8,7,2,1614539,602765,75694,2292998,692393,p
 legacy/A_honest_unchallenged,3,0,0,1,0,2,266081,0,112682,378763,266081,claim
 legacy/m_forgery_as_claimant,2,1,1,8,7,1,1072814,609124,38060,1719998,375749,commitTuples
 legacy/m_forgery_as_challenger,3,1,1,8,7,2,1031563,609136,75694,1716393,375749,commitTuples
+inference/A_honest_unchallenged,3,0,0,1,0,2,252353,0,110606,362959,252353,claim
+inference/B_class_gate_as_claimant,2,1,1,9,8,1,1953599,656174,35984,2645757,992593,proveSegment
+inference/C_acc_gate_as_claimant,2,1,1,9,8,1,5325008,655023,35984,6016015,4359683,proveSegment
+inference/D_acc_state_as_claimant,2,1,1,9,8,1,1937566,654216,35984,2627766,976534,proveBeatEnd
+inference/E_class_gate_as_challenger,3,1,1,9,8,2,1914294,656174,73618,2644086,953288,proveSegment
+inference/F_acc_gate_as_challenger,3,1,1,9,8,2,5302863,654975,73618,6031456,4337478,proveSegment
+inference/G_acc_gate_mid_as_claimant,2,1,1,10,9,1,5981681,713498,35984,6731163,4961813,proveSegment
 multi/sock_index0_then_honest,2,2,1,10,10,0,1276108,789360,0,2065468,369570,commitTuples
 multi/sock_stall_then_honest,2,2,1,11,10,1,1349630,865441,46385,2261456,369570,commitTuples
 multi/two_honest_message,2,2,1,18,18,1,2060509,1444130,59071,3563710,369570,commitTuples

@@ -14,8 +14,9 @@ import {Cases} from "../utils/Cases.sol";
 /// assets/tap-draft-large-netlists/ `message` (sequential ROM, TINY budget, K = 8, inputs of case (a): the game
 /// computes inputRoot) and `large` (default budget, K = 2, case (b): a separate input provider publishes them);
 /// the files with RAM ports (MEM) `ram16` (TINY, K = 4, case (a)) and `rammix` (default, K = 4, case (b)); and the
-/// TAPBOY-8 cartridge of demo/cartridge, `dodge` (RAM ports, default budget, T = 651, K = 32, case (b)), and its
-/// LATCH-RAM build `legacy` (no MEM, same parameters).
+/// TAPBOY-8 cartridge of demo/cartridge, `dodge` (RAM ports, default budget, T = 651, K = 32, case (b)), its
+/// LATCH-RAM build `legacy` (no MEM, same parameters), and the digit classifier of demo/inference, `inference`
+/// (ROM weights, no MEM, default budget, T = 92, K = 8, three segments per beat, case (b)).
 ///
 /// The moves come from test/data/game_gen.py, which plays the honest and cheating parties of assets/tap-draft-large-netlists/bisect_sim.py
 /// against a Python mirror of the referee and records every transaction plus the predicted outcome. This test
@@ -97,13 +98,18 @@ contract E2ETest is Test {
     // across all replayed moves: per move type, the smallest and largest transaction gas
     uint256[14] internal minGasOf;
     uint256[14] internal maxGasOf;
+    // per-move log (test_inference_gasPerMove)
+    bool internal logMoves;
+    string internal logName;
+    string internal moveLog;
+    uint256 internal logIndex;
 
     function setUp() public {
         data = vm.readFileBinary("test/data/game_moves.bin");
         Cases.Reader memory r = Cases.Reader(data, 0);
         require(Cases.uintN(r, 4) == 0x54444733, "magic"); // "TDG3"
         uint256 ng = Cases.uintN(r, 1);
-        require(ng == 6, "six games");
+        require(ng == 7, "seven games");
         store = new TapLargeNetlistStoreOwned(address(this));
         actors = [
             makeAddr("claimant"),
@@ -318,6 +324,64 @@ contract E2ETest is Test {
 
     function test_cartridge_cheatingChallengerRamRead() public {
         _named("dodge/F_ram_read_as_challenger");
+    }
+
+    // ------------------------------------------------------------------ the digit classifier (demo/inference)
+
+    /// A claimant that flips a gate feeding the class register in the last ARGMAX beat (the claim says another
+    /// class) loses in verify_segment on the third segment of that beat.
+    function test_inference_classLieByGate() public {
+        _named("inference/B_class_gate_as_claimant");
+    }
+
+    /// A claimant that flips an adder output of one accumulator lane in an L1 beat loses in verify_segment on the
+    /// first segment of that beat.
+    function test_inference_accumulatorLieByGate() public {
+        _named("inference/C_acc_gate_as_claimant");
+    }
+
+    /// A claimant that forges a bit of the new accumulator state after an L1 beat (honest signal values) loses in
+    /// verify_beat_end on the state list.
+    function test_inference_accumulatorLieByStateBit() public {
+        _named("inference/D_acc_state_as_claimant");
+    }
+
+    /// The two gate cheaters as challengers of an honest claim lose by the same verifier calls.
+    function test_inference_cheatingChallenger_class() public {
+        _named("inference/E_class_gate_as_challenger");
+    }
+
+    function test_inference_cheatingChallenger_accumulator() public {
+        _named("inference/F_acc_gate_as_challenger");
+    }
+
+    /// An accumulator lie in a lane whose adder sits in the middle segment of the beat: with B and C, the final
+    /// call lands on each of the three canonical segments.
+    function test_inference_accumulatorLieMiddleSegment() public {
+        _named("inference/G_acc_gate_mid_as_claimant");
+    }
+
+    /// Every transaction of the inference disputes, one row per move, for demo/inference/build/numbers.json
+    /// (written to test/data/inference_gas.csv; see docs/TESTING.md).
+    function test_inference_gasPerMove() public {
+        string[7] memory names = [
+            "inference/A_honest_unchallenged",
+            "inference/B_class_gate_as_claimant",
+            "inference/C_acc_gate_as_claimant",
+            "inference/D_acc_state_as_claimant",
+            "inference/E_class_gate_as_challenger",
+            "inference/F_acc_gate_as_challenger",
+            "inference/G_acc_gate_mid_as_claimant"
+        ];
+        moveLog = "scenario,move,actor,type,gas\n";
+        logMoves = true;
+        for (uint256 k; k < names.length; ++k) {
+            logName = names[k];
+            logIndex = 0;
+            _run(_find(names[k]));
+        }
+        logMoves = false;
+        vm.writeFile("test/data/inference_gas.csv", moveLog);
     }
 
     // ------------------------------------------------------------------ M forgery on files without MEM (§4.5, §7.4)
@@ -589,6 +653,21 @@ contract E2ETest is Test {
             }
         }
         uint256 used = vm.lastFrameGas().gasTotalUsed;
+        if (logMoves) {
+            moveLog = string.concat(
+                moveLog,
+                logName,
+                ",",
+                vm.toString(logIndex++),
+                ",",
+                _actorName(actor),
+                ",",
+                _moveName(mtype),
+                ",",
+                vm.toString(used),
+                "\n"
+            );
+        }
         if (minGasOf[mtype] == 0 || used < minGasOf[mtype]) minGasOf[mtype] = used;
         if (used > maxGasOf[mtype]) maxGasOf[mtype] = used;
         st.gas[actor] += used;
@@ -804,6 +883,11 @@ contract E2ETest is Test {
             "refund"
         ];
         return names[t];
+    }
+
+    function _actorName(uint8 a) internal pure returns (string memory) {
+        string[5] memory names = ["claimant", "challenger", "bystander", "inputProvider", "challenger2"];
+        return names[a];
     }
 
     function _pad(string memory s, uint256 n) internal pure returns (string memory) {

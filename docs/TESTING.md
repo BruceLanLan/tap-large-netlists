@@ -42,17 +42,17 @@ forge test
 | `test/Unit.t.sol` | 7 | pass |
 | `test/GasStore.t.sol` | 2 | pass (the 456-chunk upload; the cartridge's upload with RAM ports and with LATCH-based RAM) |
 | `test/GasVerify.t.sol` | 1 | pass (114 cases, including RAM read and write ports, ROM read ports and the cartridge) |
-| `test/game/E2E.t.sol` | 49 | pass (118 end-to-end scenarios on six files, three of them with RAM ports: `ram16`, `rammix` and the cartridge; the other three are `message`, `large` and the cartridge's LATCH-RAM build, on which a party that forges the uncommitted `M` of its last segment tuple loses in both roles) |
+| `test/game/E2E.t.sol` | 56 | pass (125 end-to-end scenarios on seven files, three of them with RAM ports: `ram16`, `rammix` and the cartridge; the other four are `message`, `large`, the cartridge's LATCH-RAM build, on which a party that forges the uncommitted `M` of its last segment tuple loses in both roles, and the inference demo's classifier `inference` (seven scenarios, `test_inference_gasPerMove` writes `test/data/inference_gas.csv`)) |
 | `test/game/MultiChallenger.t.sol` | 6 | pass |
 | `test/game/GameLimits.t.sol` | 10 | pass (including the costliest final calls, with and without RAM ports, through the game) |
-| **Total** | **89** | **89 passed, 0 failed** (about 50 s) |
+| **Total** | **96** | **96 passed, 0 failed** (about 70 s) |
 
 Contract sizes (`forge build --sizes`; EIP-170 limit 24,576 bytes): `TapLargeDisputeGame` 24,114, `TapLargeGameLib`
 3,223, `TapLargeVerifier` 13,837, `TapLargeNetlistStoreOwned` 4,468 bytes of runtime code. `GameHarness`, a
 test-only subclass of the game, is above the limit (26,337 bytes), so `forge build --sizes` reports an error for it;
 Foundry tests do not enforce the limit.
 
-The gas tests rewrite `contracts/test/data/game_gas.csv` and `gas_cases.bin.csv`; after
+The gas tests rewrite `contracts/test/data/game_gas.csv`, `gas_cases.bin.csv` and `inference_gas.csv`; after
 the run they are byte-identical to the committed files (`git diff --exit-code`).
 
 ## 3. Test data generators
@@ -62,7 +62,7 @@ The binary test data is generated with the Python reference and is reproducible 
 ```
 cd contracts/test/data
 python3 gen_diff.py     # diff_cases.bin   (about 6 s)
-python3 game_gen.py     # game_moves.bin   (about 23 s)
+python3 game_gen.py     # game_moves.bin   (about 30 s; includes the inference game of demo/inference)
 python3 gen_gas.py      # gas_cases.bin    (about 70 s)
 ```
 
@@ -90,6 +90,25 @@ python3 dispute_demo.py
 | `test_cartridge.py` | 18 tests, OK (about 12 s), Python 3.9.6 and 3.11.15 |
 | `report.py` | rewrites `build/*.tapnet2` (RAM ports: 5,781 bytes, 1 chunk, 1 canonical segment, honest witnesses 48 to 224 bytes) and `build/legacy/*.tapnet2` (LATCH RAM: 104,076 bytes, 7 chunks, 3 segments, 48 to 968 bytes), byte-identical to the committed files |
 | `dispute_demo.py` | six scenarios; every cheater loses; each dispute that reaches the verifier is decided by exactly one call of `verify_segment` (8 or 9 rounds) |
+
+## 4b. Inference demo
+
+```
+cd demo/inference
+python3 test_inference.py
+python3 mlp_dispute.py
+python3 mlp_report.py
+```
+
+| Check | Result |
+|---|---|
+| `test_inference.py` | 12 tests, OK (about 30 s), Python 3.9.6 and 3.11.15: the integer model reproduces `train.py`'s predictions on the 450 test digits (accuracy 0.9778) and its beat schedule equals the arithmetic; `rtl/mlp_digits.v` is the generator's output; the committed netlist is valid, has 2 ROM records, 421 LATCHes, 6 chunks and 3 canonical segments within the budget; the netlist equals the model on every beat of 50 test digits; the register bits read through the LATCH mapping equal the model's; the seven dispute scenarios (every cheater loses in one verifier call, each segment reached); the class opening rejects another class; honest witnesses of all three segments verify. `ConverterTests` (a fresh Yosys conversion behaves like the model on 3 digits) runs when `yosys` is on `PATH`, otherwise `skipped=1` |
+| `mlp_dispute.py` | seven scenarios, every cheater loses, exactly one verifier call each (about 3 s) |
+| `mlp_report.py` | compares 60 digits (60 exact matches), measures witnesses, reads `contracts/test/data/inference_gas.csv` and `game_gas.csv`, rewrites `build/numbers.json`, byte-identical to the committed file |
+
+`train.py` (numpy, scikit-learn) and `mlp_build.py` (yosys) regenerate `model/` and `build/mlp_digits.tapnet2`; they
+are not part of the test commands, and a rebuild with another Yosys version may change the file's bytes and gate
+count (the committed file is the one the numbers refer to).
 
 ## 5. Measurements
 
@@ -123,7 +142,8 @@ ABC version (CI uses the older Ubuntu package).
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs sections 1, 3 (`gen_diff.py`, `game_gen.py`), 4 (`test_cartridge.py`) and the
-first three scripts of section 5 on Python 3.9 and 3.11, and section 2 with Foundry 1.8.3, and fails if any
-generated file differs from the committed one. The job `verilog2tapnet` installs `yosys` and `iverilog` from the
-Ubuntu 24.04 packages and runs the unit tests of section 6 (not `validate.py`). It has not run yet: the repository has no remote.
+`.github/workflows/ci.yml` runs sections 1, 3 (`gen_diff.py`, `game_gen.py`), 4 (`test_cartridge.py`), 4b
+(`test_inference.py`, `mlp_report.py`) and the first three scripts of section 5 on Python 3.9 and 3.11, and section
+2 with Foundry 1.8.3, and fails if any generated file differs from the committed one. The job `verilog2tapnet`
+installs `yosys` and `iverilog` from the Ubuntu 24.04 packages, runs the unit tests of section 6 (not
+`validate.py`) and the `ConverterTests` of section 4b. It has not run yet: the repository has no remote.

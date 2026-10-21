@@ -1,0 +1,1267 @@
+{
+ "generatedBy": "demo/inference/mlp_report.py",
+ "note": "A demonstration on the reference implementation; not a deployed service and not a claim about any production model.",
+ "model": {
+  "architecture": "64-16-10 MLP, ReLU",
+  "inputBits": 4,
+  "hiddenBits": 4,
+  "weightBits": 8,
+  "accBits": 20,
+  "shift1": 9,
+  "dataset": "sklearn.datasets.load_digits (1,797 images of 8 x 8, pixel values 0..16)",
+  "split": {
+   "testSize": 0.25,
+   "randomState": 7,
+   "stratified": true,
+   "nTrain": 1347,
+   "nTest": 450
+  },
+  "floatTrainAccuracy": 1.0,
+  "floatTestAccuracy": 0.9888888888888889,
+  "intTrainAccuracy": 1.0,
+  "intTestAccuracy": 0.9777777777777777,
+  "intTestAccuracyFromTrainPy": 0.9777777777777777
+ },
+ "netlist": {
+  "file": "build/mlp_digits.tapnet2",
+  "bytes": 88854,
+  "chunks": 6,
+  "netlistHash2": "0x561f036b1c051727b724839a77498a5592b0f324436fd971153644c426df300e",
+  "metrics": {
+   "nIn": 4,
+   "nOut": 5,
+   "nand": 12276,
+   "latch": 421,
+   "romBits": 9472,
+   "romRecords": 2,
+   "signals": 12911,
+   "bytes": 88854
+  },
+  "mem": false,
+  "bytesByRecord": {
+   "NAND": 85932,
+   "LATCH": 1684,
+   "ROM": 1222,
+   "header": 16
+  },
+  "romRecords": [
+   {
+    "a": 6,
+    "w": 128,
+    "entries": 64,
+    "bytes": 1046
+   },
+   {
+    "a": 4,
+    "w": 80,
+    "entries": 16,
+    "bytes": 176
+   }
+  ],
+  "gateCostPerBeat": 12915,
+  "budget": {
+   "gates": 6000,
+   "extWords": 256,
+   "chunks": 16
+  },
+  "segmentsPerBeat": 3,
+  "segments": [
+   {
+    "offset": 16,
+    "firstSignal": 6,
+    "latchOrdinal": 0,
+    "records": 5784,
+    "stop": "budget",
+    "gates": 6000,
+    "extWords": 3,
+    "chunks": 5
+   },
+   {
+    "offset": 40461,
+    "firstSignal": 5996,
+    "latchOrdinal": 417,
+    "records": 6000,
+    "stop": "budget",
+    "gates": 6000,
+    "extWords": 18,
+    "chunks": 4
+   },
+   {
+    "offset": 82461,
+    "firstSignal": 11996,
+    "latchOrdinal": 417,
+    "records": 915,
+    "stop": "eof",
+    "gates": 915,
+    "extWords": 7,
+    "chunks": 1
+   }
+  ],
+  "stateListSteps": 2,
+  "outputListSteps": 1,
+  "converter": {
+   "abcScript": "dch",
+   "yosysNand": 9060,
+   "yosysNot": 3884,
+   "yosysDff": 417,
+   "tail": {
+    "buf": 0,
+    "const": 0,
+    "copy": 0,
+    "latch_copy": 4,
+    "latch_move": 0,
+    "move": 1,
+    "port_copy": 0,
+    "port_move": 0
+   },
+   "memoryDecisions": {
+    "w1": "ROM",
+    "w2": "ROM"
+   }
+  }
+ },
+ "run": {
+  "T": 92,
+  "K": 8,
+  "checkpointLeaves": 13,
+  "inputBitsPerBeat": 4,
+  "outputBits": 5,
+  "schedule": {
+   "L1": [
+    0,
+    63
+   ],
+   "ACT": [
+    64,
+    64
+   ],
+   "L2": [
+    65,
+    80
+   ],
+   "ARGMAX": [
+    81,
+    90
+   ],
+   "DONE": [
+    91,
+    91
+   ]
+  },
+  "digit": {
+   "testIndex": 0,
+   "label": 1,
+   "honestClass": 1
+  },
+  "lies": {
+   "class": {
+    "beat": 90,
+    "register": "cls[0]",
+    "signal": 12895
+   },
+   "accumulator": {
+    "beat": 63,
+    "register": "acc1[12]",
+    "latchOrdinal": 41,
+    "signal": 2158
+   },
+   "accumulatorMiddleSegment": {
+    "beat": 63,
+    "register": "acc13[12]",
+    "signal": 9801
+   }
+  }
+ },
+ "verification": {
+  "digitsCompared": 60,
+  "exactMatch": 60,
+  "exactMatchRate": 1.0,
+  "netlistAccuracyOnCompared": 0.9666666666666667
+ },
+ "witness": {
+  "sampledBeats": [
+   0,
+   10,
+   20,
+   30,
+   40,
+   50,
+   60,
+   70,
+   80,
+   90,
+   91
+  ],
+  "segmentWitnessBytes": [
+   {
+    "segment": 0,
+    "min": 48,
+    "max": 120,
+    "chunksReadMax": 3
+   },
+   {
+    "segment": 1,
+    "min": 1140,
+    "max": 1140,
+    "chunksReadMax": 4
+   },
+   {
+    "segment": 2,
+    "min": 708,
+    "max": 776,
+    "chunksReadMax": 1
+   }
+  ],
+  "allSegmentsMin": 48,
+  "allSegmentsMax": 1140,
+  "beat": 50,
+  "stateStepWitnessBytes": [
+   2542,
+   1422
+  ],
+  "outputStepWitnessBytes": [
+   142
+  ]
+ },
+ "disputes": {
+  "A honest claim vs honest checker": {
+   "claimant": "honest prover",
+   "challenger": "honest checker",
+   "claimedClass": 1,
+   "winner": "honest prover",
+   "loser": "honest checker",
+   "rounds": {},
+   "totalRounds": 0,
+   "verifyCalls": 0,
+   "final": "none",
+   "beat": null,
+   "index": null,
+   "witnessBytes": null
+  },
+  "B class lie (gate) vs honest checker": {
+   "claimant": "cheater (class gate)",
+   "challenger": "honest prover",
+   "claimedClass": 0,
+   "winner": "honest prover",
+   "loser": "cheater (class gate)",
+   "rounds": {
+    "checkpoint": 1,
+    "beat": 3,
+    "tuples": 1,
+    "seg": 3,
+    "verify": 1
+   },
+   "totalRounds": 9,
+   "verifyCalls": 1,
+   "final": "verify_segment(seg_2 -> seg_3)",
+   "beat": 90,
+   "index": 3,
+   "witnessBytes": 776
+  },
+  "C accumulator lie (gate) vs honest checker": {
+   "claimant": "cheater (accumulator gate)",
+   "challenger": "honest prover",
+   "claimedClass": 2,
+   "winner": "honest prover",
+   "loser": "cheater (accumulator gate)",
+   "rounds": {
+    "checkpoint": 1,
+    "beat": 4,
+    "tuples": 1,
+    "seg": 2,
+    "verify": 1
+   },
+   "totalRounds": 9,
+   "verifyCalls": 1,
+   "final": "verify_segment(seg_0 -> seg_1)",
+   "beat": 63,
+   "index": 1,
+   "witnessBytes": 120
+  },
+  "D accumulator lie (state bit) vs honest checker": {
+   "claimant": "cheater (accumulator state)",
+   "challenger": "honest prover",
+   "claimedClass": 2,
+   "winner": "honest prover",
+   "loser": "cheater (accumulator state)",
+   "rounds": {
+    "checkpoint": 1,
+    "beat": 4,
+    "tuples": 1,
+    "state": 2,
+    "verify": 1
+   },
+   "totalRounds": 9,
+   "verifyCalls": 1,
+   "final": "verify_beat_end[state](0 -> 1)",
+   "beat": 63,
+   "index": 1,
+   "witnessBytes": 2542
+  },
+  "E honest claim vs cheating challenger (class)": {
+   "claimant": "honest prover",
+   "challenger": "cheater (class gate)",
+   "claimedClass": 1,
+   "winner": "honest prover",
+   "loser": "cheater (class gate)",
+   "rounds": {
+    "checkpoint": 1,
+    "beat": 3,
+    "tuples": 1,
+    "seg": 3,
+    "verify": 1
+   },
+   "totalRounds": 9,
+   "verifyCalls": 1,
+   "final": "verify_segment(seg_2 -> seg_3)",
+   "beat": 90,
+   "index": 3,
+   "witnessBytes": 776
+  },
+  "F honest claim vs cheating challenger (accumulator)": {
+   "claimant": "honest prover",
+   "challenger": "cheater (accumulator gate)",
+   "claimedClass": 1,
+   "winner": "honest prover",
+   "loser": "cheater (accumulator gate)",
+   "rounds": {
+    "checkpoint": 1,
+    "beat": 4,
+    "tuples": 1,
+    "seg": 2,
+    "verify": 1
+   },
+   "totalRounds": 9,
+   "verifyCalls": 1,
+   "final": "verify_segment(seg_0 -> seg_1)",
+   "beat": 63,
+   "index": 1,
+   "witnessBytes": 120
+  },
+  "G accumulator lie (gate, middle segment) vs honest checker": {
+   "claimant": "cheater (accumulator gate, middle segment)",
+   "challenger": "honest prover",
+   "claimedClass": 2,
+   "winner": "honest prover",
+   "loser": "cheater (accumulator gate, middle segment)",
+   "rounds": {
+    "checkpoint": 1,
+    "beat": 4,
+    "tuples": 1,
+    "seg": 3,
+    "verify": 1
+   },
+   "totalRounds": 10,
+   "verifyCalls": 1,
+   "final": "verify_segment(seg_1 -> seg_2)",
+   "beat": 63,
+   "index": 2,
+   "witnessBytes": 1140
+  }
+ },
+ "gas": {
+  "source": "contracts/test/data/inference_gas.csv and game_gas.csv (forge test, Foundry 1.8.3; per transaction incl. 21,000 intrinsic and calldata gas, before refunds)",
+  "perScenario": {
+   "inference/A_honest_unchallenged": {
+    "claimStatus": 3,
+    "disputes": 0,
+    "verifierCalls": 0,
+    "txsClaimant": 1,
+    "txsChallengers": 0,
+    "txsOthers": 2,
+    "gasClaimant": 252353,
+    "gasChallengers": 0,
+    "gasOthers": 110606,
+    "gasTotal": 362959,
+    "maxMoveGas": 252353,
+    "maxMove": "claim"
+   },
+   "inference/B_class_gate_as_claimant": {
+    "claimStatus": 2,
+    "disputes": 1,
+    "verifierCalls": 1,
+    "txsClaimant": 9,
+    "txsChallengers": 8,
+    "txsOthers": 1,
+    "gasClaimant": 1953599,
+    "gasChallengers": 656174,
+    "gasOthers": 35984,
+    "gasTotal": 2645757,
+    "maxMoveGas": 992593,
+    "maxMove": "proveSegment"
+   },
+   "inference/C_acc_gate_as_claimant": {
+    "claimStatus": 2,
+    "disputes": 1,
+    "verifierCalls": 1,
+    "txsClaimant": 9,
+    "txsChallengers": 8,
+    "txsOthers": 1,
+    "gasClaimant": 5325008,
+    "gasChallengers": 655023,
+    "gasOthers": 35984,
+    "gasTotal": 6016015,
+    "maxMoveGas": 4359683,
+    "maxMove": "proveSegment"
+   },
+   "inference/D_acc_state_as_claimant": {
+    "claimStatus": 2,
+    "disputes": 1,
+    "verifierCalls": 1,
+    "txsClaimant": 9,
+    "txsChallengers": 8,
+    "txsOthers": 1,
+    "gasClaimant": 1937566,
+    "gasChallengers": 654216,
+    "gasOthers": 35984,
+    "gasTotal": 2627766,
+    "maxMoveGas": 976534,
+    "maxMove": "proveBeatEnd"
+   },
+   "inference/E_class_gate_as_challenger": {
+    "claimStatus": 3,
+    "disputes": 1,
+    "verifierCalls": 1,
+    "txsClaimant": 9,
+    "txsChallengers": 8,
+    "txsOthers": 2,
+    "gasClaimant": 1914294,
+    "gasChallengers": 656174,
+    "gasOthers": 73618,
+    "gasTotal": 2644086,
+    "maxMoveGas": 953288,
+    "maxMove": "proveSegment"
+   },
+   "inference/F_acc_gate_as_challenger": {
+    "claimStatus": 3,
+    "disputes": 1,
+    "verifierCalls": 1,
+    "txsClaimant": 9,
+    "txsChallengers": 8,
+    "txsOthers": 2,
+    "gasClaimant": 5302863,
+    "gasChallengers": 654975,
+    "gasOthers": 73618,
+    "gasTotal": 6031456,
+    "maxMoveGas": 4337478,
+    "maxMove": "proveSegment"
+   },
+   "inference/G_acc_gate_mid_as_claimant": {
+    "claimStatus": 2,
+    "disputes": 1,
+    "verifierCalls": 1,
+    "txsClaimant": 10,
+    "txsChallengers": 9,
+    "txsOthers": 1,
+    "gasClaimant": 5981681,
+    "gasChallengers": 713498,
+    "gasOthers": 35984,
+    "gasTotal": 6731163,
+    "maxMoveGas": 4961813,
+    "maxMove": "proveSegment"
+   }
+  },
+  "finalCall": {
+   "inference/B_class_gate_as_claimant": {
+    "type": "proveSegment",
+    "gas": 992593,
+    "actor": "claimant"
+   },
+   "inference/C_acc_gate_as_claimant": {
+    "type": "proveSegment",
+    "gas": 4359683,
+    "actor": "claimant"
+   },
+   "inference/D_acc_state_as_claimant": {
+    "type": "proveBeatEnd",
+    "gas": 976534,
+    "actor": "claimant"
+   },
+   "inference/E_class_gate_as_challenger": {
+    "type": "proveSegment",
+    "gas": 953288,
+    "actor": "claimant"
+   },
+   "inference/F_acc_gate_as_challenger": {
+    "type": "proveSegment",
+    "gas": 4337478,
+    "actor": "claimant"
+   },
+   "inference/G_acc_gate_mid_as_claimant": {
+    "type": "proveSegment",
+    "gas": 4961813,
+    "actor": "claimant"
+   }
+  },
+  "worstMove": {
+   "move": 19,
+   "actor": "claimant",
+   "type": "proveSegment",
+   "gas": 4961813,
+   "scenario": "inference/G_acc_gate_mid_as_claimant"
+  },
+  "byMoveType": {
+   "publishInputs": {
+    "min": 35984,
+    "max": 55884,
+    "n": 7
+   },
+   "claim": {
+    "min": 235241,
+    "max": 252353,
+    "n": 7
+   },
+   "accept": {
+    "min": 37634,
+    "max": 54722,
+    "n": 3
+   },
+   "challenge": {
+    "min": 143552,
+    "max": 145664,
+    "n": 6
+   },
+   "commitBeats": {
+    "min": 72014,
+    "max": 91544,
+    "n": 12
+   },
+   "revealBeat": {
+    "min": 51810,
+    "max": 70252,
+    "n": 32
+   },
+   "commitTuples": {
+    "min": 124991,
+    "max": 371476,
+    "n": 12
+   },
+   "revealSeg": {
+    "min": 54344,
+    "max": 65979,
+    "n": 26
+   },
+   "proveSegment": {
+    "min": 953288,
+    "max": 4961813,
+    "n": 5
+   },
+   "revealEnd": {
+    "min": 51770,
+    "max": 62155,
+    "n": 4
+   },
+   "proveBeatEnd": {
+    "min": 976534,
+    "max": 976534,
+    "n": 1
+   }
+  },
+  "moves": {
+   "inference/A_honest_unchallenged": [
+    {
+     "move": 0,
+     "actor": "inputProvider",
+     "type": "publishInputs",
+     "gas": 55884
+    },
+    {
+     "move": 1,
+     "actor": "claimant",
+     "type": "claim",
+     "gas": 252353
+    },
+    {
+     "move": 2,
+     "actor": "bystander",
+     "type": "accept",
+     "gas": 54722
+    }
+   ],
+   "inference/B_class_gate_as_claimant": [
+    {
+     "move": 0,
+     "actor": "inputProvider",
+     "type": "publishInputs",
+     "gas": 35984
+    },
+    {
+     "move": 1,
+     "actor": "claimant",
+     "type": "claim",
+     "gas": 235253
+    },
+    {
+     "move": 2,
+     "actor": "challenger",
+     "type": "challenge",
+     "gas": 143552
+    },
+    {
+     "move": 3,
+     "actor": "claimant",
+     "type": "commitBeats",
+     "gas": 72014
+    },
+    {
+     "move": 4,
+     "actor": "challenger",
+     "type": "commitBeats",
+     "gas": 90036
+    },
+    {
+     "move": 5,
+     "actor": "claimant",
+     "type": "revealBeat",
+     "gas": 68997
+    },
+    {
+     "move": 6,
+     "actor": "challenger",
+     "type": "revealBeat",
+     "gas": 55039
+    },
+    {
+     "move": 7,
+     "actor": "claimant",
+     "type": "revealBeat",
+     "gas": 51810
+    },
+    {
+     "move": 8,
+     "actor": "challenger",
+     "type": "revealBeat",
+     "gas": 60090
+    },
+    {
+     "move": 9,
+     "actor": "claimant",
+     "type": "commitTuples",
+     "gas": 369634
+    },
+    {
+     "move": 10,
+     "actor": "challenger",
+     "type": "commitTuples",
+     "gas": 124991
+    },
+    {
+     "move": 11,
+     "actor": "claimant",
+     "type": "revealSeg",
+     "gas": 54344
+    },
+    {
+     "move": 12,
+     "actor": "challenger",
+     "type": "revealSeg",
+     "gas": 65967
+    },
+    {
+     "move": 13,
+     "actor": "claimant",
+     "type": "revealSeg",
+     "gas": 54471
+    },
+    {
+     "move": 14,
+     "actor": "challenger",
+     "type": "revealSeg",
+     "gas": 58463
+    },
+    {
+     "move": 15,
+     "actor": "claimant",
+     "type": "revealSeg",
+     "gas": 54483
+    },
+    {
+     "move": 16,
+     "actor": "challenger",
+     "type": "revealSeg",
+     "gas": 58036
+    },
+    {
+     "move": 17,
+     "actor": "claimant",
+     "type": "proveSegment",
+     "gas": 992593
+    }
+   ],
+   "inference/C_acc_gate_as_claimant": [
+    {
+     "move": 0,
+     "actor": "inputProvider",
+     "type": "publishInputs",
+     "gas": 35984
+    },
+    {
+     "move": 1,
+     "actor": "claimant",
+     "type": "claim",
+     "gas": 235241
+    },
+    {
+     "move": 2,
+     "actor": "challenger",
+     "type": "challenge",
+     "gas": 145664
+    },
+    {
+     "move": 3,
+     "actor": "claimant",
+     "type": "commitBeats",
+     "gas": 73522
+    },
+    {
+     "move": 4,
+     "actor": "challenger",
+     "type": "commitBeats",
+     "gas": 91544
+    },
+    {
+     "move": 5,
+     "actor": "claimant",
+     "type": "revealBeat",
+     "gas": 70240
+    },
+    {
+     "move": 6,
+     "actor": "challenger",
+     "type": "revealBeat",
+     "gas": 56306
+    },
+    {
+     "move": 7,
+     "actor": "claimant",
+     "type": "revealBeat",
+     "gas": 53053
+    },
+    {
+     "move": 8,
+     "actor": "challenger",
+     "type": "revealBeat",
+     "gas": 56219
+    },
+    {
+     "move": 9,
+     "actor": "claimant",
+     "type": "revealBeat",
+     "gas": 52966
+    },
+    {
+     "move": 10,
+     "actor": "challenger",
+     "type": "revealBeat",
+     "gas": 56142
+    },
+    {
+     "move": 11,
+     "actor": "claimant",
+     "type": "commitTuples",
+     "gas": 371476
+    },
+    {
+     "move": 12,
+     "actor": "challenger",
+     "type": "commitTuples",
+     "gas": 125039
+    },
+    {
+     "move": 13,
+     "actor": "claimant",
+     "type": "revealSeg",
+     "gas": 54356
+    },
+    {
+     "move": 14,
+     "actor": "challenger",
+     "type": "revealSeg",
+     "gas": 65979
+    },
+    {
+     "move": 15,
+     "actor": "claimant",
+     "type": "revealSeg",
+     "gas": 54471
+    },
+    {
+     "move": 16,
+     "actor": "challenger",
+     "type": "revealSeg",
+     "gas": 58130
+    },
+    {
+     "move": 17,
+     "actor": "claimant",
+     "type": "proveSegment",
+     "gas": 4359683
+    }
+   ],
+   "inference/D_acc_state_as_claimant": [
+    {
+     "move": 0,
+     "actor": "inputProvider",
+     "type": "publishInputs",
+     "gas": 35984
+    },
+    {
+     "move": 1,
+     "actor": "claimant",
+     "type": "claim",
+     "gas": 235241
+    },
+    {
+     "move": 2,
+     "actor": "challenger",
+     "type": "challenge",
+     "gas": 145664
+    },
+    {
+     "move": 3,
+     "actor": "claimant",
+     "type": "commitBeats",
+     "gas": 73522
+    },
+    {
+     "move": 4,
+     "actor": "challenger",
+     "type": "commitBeats",
+     "gas": 91544
+    },
+    {
+     "move": 5,
+     "actor": "claimant",
+     "type": "revealBeat",
+     "gas": 70240
+    },
+    {
+     "move": 6,
+     "actor": "challenger",
+     "type": "revealBeat",
+     "gas": 56306
+    },
+    {
+     "move": 7,
+     "actor": "claimant",
+     "type": "revealBeat",
+     "gas": 53053
+    },
+    {
+     "move": 8,
+     "actor": "challenger",
+     "type": "revealBeat",
+     "gas": 56219
+    },
+    {
+     "move": 9,
+     "actor": "claimant",
+     "type": "revealBeat",
+     "gas": 52966
+    },
+    {
+     "move": 10,
+     "actor": "challenger",
+     "type": "revealBeat",
+     "gas": 56142
+    },
+    {
+     "move": 11,
+     "actor": "claimant",
+     "type": "commitTuples",
+     "gas": 371476
+    },
+    {
+     "move": 12,
+     "actor": "challenger",
+     "type": "commitTuples",
+     "gas": 129775
+    },
+    {
+     "move": 13,
+     "actor": "claimant",
+     "type": "revealEnd",
+     "gas": 51770
+    },
+    {
+     "move": 14,
+     "actor": "challenger",
+     "type": "revealEnd",
+     "gas": 62155
+    },
+    {
+     "move": 15,
+     "actor": "claimant",
+     "type": "revealEnd",
+     "gas": 52764
+    },
+    {
+     "move": 16,
+     "actor": "challenger",
+     "type": "revealEnd",
+     "gas": 56411
+    },
+    {
+     "move": 17,
+     "actor": "claimant",
+     "type": "proveBeatEnd",
+     "gas": 976534
+    }
+   ],
+   "inference/E_class_gate_as_challenger": [
+    {
+     "move": 0,
+     "actor": "inputProvider",
+     "type": "publishInputs",
+     "gas": 35984
+    },
+    {
+     "move": 1,
+     "actor": "claimant",
+     "type": "claim",
+     "gas": 235253
+    },
+    {
+     "move": 2,
+     "actor": "challenger",
+     "type": "challenge",
+     "gas": 143552
+    },
+    {
+     "move": 3,
+     "actor": "claimant",
+     "type": "commitBeats",
+     "gas": 72038
+    },
+    {
+     "move": 4,
+     "actor": "challenger",
+     "type": "commitBeats",
+     "gas": 90012
+    },
+    {
+     "move": 5,
+     "actor": "claimant",
+     "type": "revealBeat",
+     "gas": 68985
+    },
+    {
+     "move": 6,
+     "actor": "challenger",
+     "type": "revealBeat",
+     "gas": 55051
+    },
+    {
+     "move": 7,
+     "actor": "claimant",
+     "type": "revealBeat",
+     "gas": 51810
+    },
+    {
+     "move": 8,
+     "actor": "challenger",
+     "type": "revealBeat",
+     "gas": 60090
+    },
+    {
+     "move": 9,
+     "actor": "claimant",
+     "type": "commitTuples",
+     "gas": 369622
+    },
+    {
+     "move": 10,
+     "actor": "challenger",
+     "type": "commitTuples",
+     "gas": 125003
+    },
+    {
+     "move": 11,
+     "actor": "claimant",
+     "type": "revealSeg",
+     "gas": 54344
+    },
+    {
+     "move": 12,
+     "actor": "challenger",
+     "type": "revealSeg",
+     "gas": 65967
+    },
+    {
+     "move": 13,
+     "actor": "claimant",
+     "type": "revealSeg",
+     "gas": 54471
+    },
+    {
+     "move": 14,
+     "actor": "challenger",
+     "type": "revealSeg",
+     "gas": 58463
+    },
+    {
+     "move": 15,
+     "actor": "claimant",
+     "type": "revealSeg",
+     "gas": 54483
+    },
+    {
+     "move": 16,
+     "actor": "challenger",
+     "type": "revealSeg",
+     "gas": 58036
+    },
+    {
+     "move": 17,
+     "actor": "claimant",
+     "type": "proveSegment",
+     "gas": 953288
+    },
+    {
+     "move": 18,
+     "actor": "bystander",
+     "type": "accept",
+     "gas": 37634
+    }
+   ],
+   "inference/F_acc_gate_as_challenger": [
+    {
+     "move": 0,
+     "actor": "inputProvider",
+     "type": "publishInputs",
+     "gas": 35984
+    },
+    {
+     "move": 1,
+     "actor": "claimant",
+     "type": "claim",
+     "gas": 235253
+    },
+    {
+     "move": 2,
+     "actor": "challenger",
+     "type": "challenge",
+     "gas": 145664
+    },
+    {
+     "move": 3,
+     "actor": "claimant",
+     "type": "commitBeats",
+     "gas": 73546
+    },
+    {
+     "move": 4,
+     "actor": "challenger",
+     "type": "commitBeats",
+     "gas": 91520
+    },
+    {
+     "move": 5,
+     "actor": "claimant",
+     "type": "revealBeat",
+     "gas": 70252
+    },
+    {
+     "move": 6,
+     "actor": "challenger",
+     "type": "revealBeat",
+     "gas": 56294
+    },
+    {
+     "move": 7,
+     "actor": "claimant",
+     "type": "revealBeat",
+     "gas": 53065
+    },
+    {
+     "move": 8,
+     "actor": "challenger",
+     "type": "revealBeat",
+     "gas": 56207
+    },
+    {
+     "move": 9,
+     "actor": "claimant",
+     "type": "revealBeat",
+     "gas": 52978
+    },
+    {
+     "move": 10,
+     "actor": "challenger",
+     "type": "revealBeat",
+     "gas": 56130
+    },
+    {
+     "move": 11,
+     "actor": "claimant",
+     "type": "commitTuples",
+     "gas": 371464
+    },
+    {
+     "move": 12,
+     "actor": "challenger",
+     "type": "commitTuples",
+     "gas": 125051
+    },
+    {
+     "move": 13,
+     "actor": "claimant",
+     "type": "revealSeg",
+     "gas": 54356
+    },
+    {
+     "move": 14,
+     "actor": "challenger",
+     "type": "revealSeg",
+     "gas": 65979
+    },
+    {
+     "move": 15,
+     "actor": "claimant",
+     "type": "revealSeg",
+     "gas": 54471
+    },
+    {
+     "move": 16,
+     "actor": "challenger",
+     "type": "revealSeg",
+     "gas": 58130
+    },
+    {
+     "move": 17,
+     "actor": "claimant",
+     "type": "proveSegment",
+     "gas": 4337478
+    },
+    {
+     "move": 18,
+     "actor": "bystander",
+     "type": "accept",
+     "gas": 37634
+    }
+   ],
+   "inference/G_acc_gate_mid_as_claimant": [
+    {
+     "move": 0,
+     "actor": "inputProvider",
+     "type": "publishInputs",
+     "gas": 35984
+    },
+    {
+     "move": 1,
+     "actor": "claimant",
+     "type": "claim",
+     "gas": 235241
+    },
+    {
+     "move": 2,
+     "actor": "challenger",
+     "type": "challenge",
+     "gas": 145664
+    },
+    {
+     "move": 3,
+     "actor": "claimant",
+     "type": "commitBeats",
+     "gas": 73546
+    },
+    {
+     "move": 4,
+     "actor": "challenger",
+     "type": "commitBeats",
+     "gas": 91544
+    },
+    {
+     "move": 5,
+     "actor": "claimant",
+     "type": "revealBeat",
+     "gas": 70252
+    },
+    {
+     "move": 6,
+     "actor": "challenger",
+     "type": "revealBeat",
+     "gas": 56306
+    },
+    {
+     "move": 7,
+     "actor": "claimant",
+     "type": "revealBeat",
+     "gas": 53065
+    },
+    {
+     "move": 8,
+     "actor": "challenger",
+     "type": "revealBeat",
+     "gas": 56219
+    },
+    {
+     "move": 9,
+     "actor": "claimant",
+     "type": "revealBeat",
+     "gas": 52978
+    },
+    {
+     "move": 10,
+     "actor": "challenger",
+     "type": "revealBeat",
+     "gas": 56142
+    },
+    {
+     "move": 11,
+     "actor": "claimant",
+     "type": "commitTuples",
+     "gas": 371476
+    },
+    {
+     "move": 12,
+     "actor": "challenger",
+     "type": "commitTuples",
+     "gas": 125039
+    },
+    {
+     "move": 13,
+     "actor": "claimant",
+     "type": "revealSeg",
+     "gas": 54356
+    },
+    {
+     "move": 14,
+     "actor": "challenger",
+     "type": "revealSeg",
+     "gas": 65979
+    },
+    {
+     "move": 15,
+     "actor": "claimant",
+     "type": "revealSeg",
+     "gas": 54471
+    },
+    {
+     "move": 16,
+     "actor": "challenger",
+     "type": "revealSeg",
+     "gas": 58463
+    },
+    {
+     "move": 17,
+     "actor": "claimant",
+     "type": "revealSeg",
+     "gas": 54483
+    },
+    {
+     "move": 18,
+     "actor": "challenger",
+     "type": "revealSeg",
+     "gas": 58142
+    },
+    {
+     "move": 19,
+     "actor": "claimant",
+     "type": "proveSegment",
+     "gas": 4961813
+    }
+   ]
+  }
+ }
+}
