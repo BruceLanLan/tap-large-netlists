@@ -63,6 +63,7 @@ The binary test data is generated with the Python reference and is reproducible 
 cd contracts/test/data
 python3 gen_diff.py     # diff_cases.bin   (about 6 s)
 python3 game_gen.py     # game_moves.bin   (about 30 s; includes the inference game of demo/inference)
+python3 ../../../demo/inference/onchain/gen_transcript.py --check   # transcript.json of the on-chain runner equals game_moves.bin
 python3 gen_gas.py      # gas_cases.bin    (about 70 s)
 ```
 

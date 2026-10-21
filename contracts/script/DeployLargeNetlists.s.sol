@@ -19,7 +19,12 @@ import {TapLargeDisputeGame} from "../src/game/TapLargeDisputeGame.sol";
 ///         Environment: PRIVATE_KEY (required, test key); optional BOND (wei), CHALLENGE_WINDOW, MOVE_TIME,
 ///         PER_BEAT_TIME (seconds), MAX_K, INPUT_PROVIDER, BUDGET_GATES, BUDGET_EXT_WORDS, BUDGET_CHUNKS,
 ///         UPLOAD_LARGE, ALLOW_MAINNET.
-///         Writes deployments/<chainId>.json (section "largeNetlists").
+///         FAST_PARAMS=true deploys a second game variant for the on-chain inference demo
+///         (demo/inference/onchain): challengeWindow 10 minutes instead of 1 day, so that an unchallenged claim
+///         can be accepted in the same sitting; moveTime and perBeatTime stay at their defaults, since the game
+///         has no minimum time between moves and a shorter moveTime would only make a stalled RPC fatal. Its
+///         record goes to the section "largeNetlistsFast" so that it never overwrites the default deployment.
+///         Writes deployments/<chainId>.json (section "largeNetlists", or "largeNetlistsFast").
 ///
 ///         forge script script/DeployLargeNetlists.s.sol --rpc-url "$RPC_URL" --broadcast
 contract DeployLargeNetlists is Script {
@@ -47,9 +52,10 @@ contract DeployLargeNetlists is Script {
         console.log("deployer      ", deployer);
         console.log("balance (wei) ", deployer.balance);
 
+        bool fast = vm.envOr("FAST_PARAMS", false);
         Params memory p;
         p.bond = vm.envOr("BOND", uint256(0.01 ether));
-        p.challengeWindow = uint64(vm.envOr("CHALLENGE_WINDOW", uint256(1 days)));
+        p.challengeWindow = uint64(vm.envOr("CHALLENGE_WINDOW", fast ? uint256(10 minutes) : uint256(1 days)));
         p.moveTime = uint64(vm.envOr("MOVE_TIME", uint256(1 hours)));
         p.perBeatTime = uint64(vm.envOr("PER_BEAT_TIME", uint256(60)));
         p.maxK = uint64(vm.envOr("MAX_K", uint256(64)));
@@ -158,7 +164,8 @@ contract DeployLargeNetlists is Script {
         console.log("TapLargeDisputeGame      ", address(game));
         console.log("segmentBudget            ", g, e, c);
 
-        string memory obj = "largeNetlists";
+        // the FAST_PARAMS variant has its own section, so a second deployment never overwrites the first record
+        string memory obj = vm.envOr("FAST_PARAMS", false) ? "largeNetlistsFast" : "largeNetlists";
         vm.serializeAddress(obj, "deployer", store.owner());
         vm.serializeUint(obj, "block", block.number);
         vm.serializeUint(obj, "timestamp", block.timestamp);
@@ -190,8 +197,8 @@ contract DeployLargeNetlists is Script {
             vm.serializeUint(root, "chainId", block.chainid);
             vm.writeJson(vm.serializeString(root, "chain", _chainName()), path);
         }
-        vm.writeJson(section, path, ".largeNetlists");
-        console.log("wrote section largeNetlists to", path);
+        vm.writeJson(section, path, string.concat(".", obj));
+        console.log("wrote section", obj, "to", path);
     }
 
     function _id(bytes4 id) internal pure returns (string memory) {

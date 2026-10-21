@@ -23,7 +23,7 @@ jobs:
         suite:
           - { name: assets,    dir: assets/tap-draft-large-netlists, cmd: "python make_vectors.py --check && python test_tapnet2.py && python test_ram.py" }
           - { name: cartridge, dir: demo/cartridge,                  cmd: "python test_cartridge.py" }
-          - { name: inference, dir: demo/inference,                  cmd: "python test_inference.py && python mlp_report.py" }
+          - { name: inference, dir: demo/inference,                  cmd: "python test_inference.py && python mlp_report.py && python onchain/gen_transcript.py --check" }
           - { name: fixtures,  dir: contracts/test/data,             cmd: "python gen_diff.py && python game_gen.py" }
           - { name: attacks,   dir: measurements/attacks,            cmd: "python attack1.py && python attack2.py && python attack3.py" }
     steps:
@@ -56,6 +56,9 @@ jobs:
       - name: Deployment script, anvil dry run (DEPLOY.md §8; local node, anvil's public dev key)
         working-directory: contracts
         run: ./script/anvil-dry-run.sh
+      - name: On-chain inference dispute runner, anvil end-to-end (demo/inference/onchain; the lie is rejected, the honest claim accepted)
+        working-directory: contracts
+        run: ./script/anvil-inference-e2e.sh
       - name: Gas outputs must match the committed ones
         run: git diff --exit-code
 

@@ -10,6 +10,9 @@ contracts/cache/
 contracts/broadcast/
 # written by contracts/script/anvil-dry-run.sh (local node); real testnet files deployments/<chainId>.json are committed
 contracts/deployments/31337.json
+# written by contracts/script/anvil-inference-e2e.sh (local node); testnet state files are committed with the deployment
+contracts/deployments/31337.inference.json
+demo/inference/onchain/evidence-31337.json
 # forge-std is installed locally (see contracts/lib/README.md), not committed
 contracts/lib/forge-std
 

@@ -4,6 +4,21 @@ All notable changes to this repository. The TAP text is a draft; its number is a
 
 ## Unreleased — 2026-10-21
 
+### On-chain demo runner (`demo/inference/onchain/`, `contracts/script/`)
+
+- `RunInferenceDispute.s.sol` + `run-inference-dispute.sh`: one command replays the inference demo's disputes
+  against DEPLOYED reference contracts (`deployments/<chainId>.json`): uploads the classifier netlist if the store
+  lacks it (8 transactions), then scenario B (class lie at beat 90, honest challenger: 17 transactions, the
+  claimant's own `proveSegment` makes `verifySegment` return false, claim Rejected) or scenario A (honest claim,
+  `accept` after the window). Two keys (`CLAIMANT_KEY`, `CHALLENGER_KEY`); resumable steps (`STEP`, state file
+  `deployments/<chainId>.inference.json`). `gen_transcript.py` writes the transactions (`transcript.json`) from the
+  same mirror as `game_gen.py` and `--check`s them against `game_moves.bin`; `collect_evidence.py` turns the broadcast
+  records into `evidence-<chainId>.json` and the evidence paragraph (zh + en). `anvil-inference-e2e.sh` runs it all
+  against anvil (B rejected, A accepted, also on a `FAST_PARAMS` deployment); the CI job `forge` runs it.
+- `DeployLargeNetlists.s.sol`: `FAST_PARAMS=true` deploys a variant with a 10-minute challenge window into the
+  section `largeNetlistsFast` (the default record is never overwritten). No contract code changed.
+- `foundry.toml`: read access to `demo/inference/build` and `demo/inference/onchain` for the script.
+
 ### Demo (`demo/inference/`)
 
 - New verifiable-inference demonstration: a 64-16-10 MLP for the scikit-learn digits (int8 weights, 4-bit inputs

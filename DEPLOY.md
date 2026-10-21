@@ -89,6 +89,14 @@ export RPC_URL=…                # §2
 contracts/script/deploy-testnet.sh          # one command / 一条命令
 ```
 
+`FAST_PARAMS=true contracts/script/deploy-testnet.sh` deploys a second set with a 10-minute challenge window
+(other parameters unchanged) into its own section `largeNetlistsFast` of `deployments/<chainId>.json`, for the
+on-chain inference demo of `demo/inference/onchain/README.md`, whose honest claim can then be accepted in the same
+sitting; the default deployment's record is not touched.
+
+`FAST_PARAMS=true` 另部署一套挑战窗口为 10 分钟的合约（其余参数不变），写入 `deployments/<chainId>.json` 的独立小节
+`largeNetlistsFast`，供 `demo/inference/onchain/README.md` 的链上推理演示使用；默认部署的记录不受影响。
+
 which runs
 
 ```bash
@@ -127,7 +135,18 @@ estimate.
 发回 `deployments/<chainId>.json`、`broadcast/…/run-latest.json`、所用链与 RPC、日期、是否设置了 `UPLOAD_LARGE`。
 不要发任何密钥。
 
-## 8. Dry run without a chain / 不上链的预演
+## 8. After the deployment: the inference dispute on chain / 部署之后：链上推理争议
+
+`demo/inference/onchain/README.md`: one command (`contracts/script/run-inference-dispute.sh`, two test keys) uploads
+the inference demo's netlist, publishes a claim with a class lie, plays the whole dispute against the deployed game
+and ends in the verifier call that rejects it (17 transactions, about 2.9 million gas); the honest claim is
+accepted after the window. The transaction hashes come back in `demo/inference/onchain/evidence-<chainId>.json`.
+
+部署完成后，`demo/inference/onchain/README.md` 的一条命令用两把测试密钥在已部署合约上重放推理演示的争议（上传网表、发布带
+类别谎言的申领、整场二分、以拒绝判决的验证器调用收尾，17 笔交易约 290 万 gas），诚实申领在窗口过后被接受；交易哈希写入
+`demo/inference/onchain/evidence-<chainId>.json`。
+
+## 9. Dry run without a chain / 不上链的预演
 
 ```bash
 cd contracts && ./script/anvil-dry-run.sh
@@ -135,4 +154,5 @@ cd contracts && ./script/anvil-dry-run.sh
 
 Starts a local `anvil`, runs the script with anvil's public default account 0 (a published constant, not a secret)
 and `UPLOAD_LARGE=true`, prints the gas per transaction and `deployments/31337.json`, and stops anvil. The CI job
-`forge` runs the same.
+`forge` runs the same, followed by `contracts/script/anvil-inference-e2e.sh` (the on-chain inference runner against
+anvil: deploy, the class lie rejected, the honest claim accepted after the warped window).
