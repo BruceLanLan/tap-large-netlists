@@ -5,7 +5,10 @@ rejection of unsupported constructs.
     python3 -m unittest discover -s tests -v       (needs yosys and iverilog on PATH)
 
 Gate counts depend on the Yosys/ABC version, so the tests assert behaviour, record kinds and bounds, not
-exact sizes (the README gives the sizes of one local run).
+exact sizes (the README gives the sizes of one local run). test_same_structure_same_records needs Yosys >=
+verilog2tapnet.MIN_YOSYS and is skipped (with the versions in the message) under an older one, whose ABC
+maps structurally identical designs to equivalent but not identical records; the beat-by-beat checks of
+those designs run under every version.
 """
 from __future__ import annotations
 
@@ -147,7 +150,14 @@ class DesignSuite(unittest.TestCase):
 
     def test_same_structure_same_records(self):
         # Renaming, swapped operands and port order (with --ports) give the same NAND records, possibly
-        # in another order
+        # in another order. This is a property of the Yosys/ABC release, not only of the tool: Yosys 0.33
+        # (Ubuntu 24.04) maps adder8_swapped to other, equivalent records, so the check needs the
+        # documented minimum (an unknown version runs the check, so a probe failure cannot hide a change).
+        ver = v2t.yosys_version()
+        if ver is not None and ver < v2t.MIN_YOSYS:
+            self.skipTest(f"Yosys {ver[0]}.{ver[1]} < {v2t.MIN_YOSYS[0]}.{v2t.MIN_YOSYS[1]} (documented "
+                          "minimum): older ABC releases map structurally identical designs to equivalent "
+                          "but not identical NAND records; behaviour is still checked beat by beat")
         for a, b in V.MUST_MATCH:
             with self.subTest(pair=(a, b)):
                 self.assertEqual(V.records_multiset(self.res(a).data), V.records_multiset(self.res(b).data))

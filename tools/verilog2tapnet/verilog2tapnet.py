@@ -50,6 +50,28 @@ import tapnet2  # noqa: E402  (the repository's reference implementation)
 
 YOSYS = os.environ.get("YOSYS") or shutil.which("yosys") or "yosys"
 
+# The Yosys version the tool is developed and verified with (README, Results). Older versions convert and
+# pass the behavioural checks, but their ABC may map structurally identical designs to equivalent, not
+# identical, NAND records (Yosys 0.33: adder8 against adder8_swapped), so that test is skipped below this.
+MIN_YOSYS = (0, 69)
+_YOSYS_VERSION: List[Optional[Tuple[int, int]]] = []
+
+
+def yosys_version() -> Optional[Tuple[int, int]]:
+    """(major, minor) of `yosys -V` ("Yosys 0.69+post (git sha1 ...)" -> (0, 69)); None if it cannot be
+    determined. Probed once per process."""
+    if not _YOSYS_VERSION:
+        ver = None
+        try:
+            p = subprocess.run([YOSYS, "-V"], capture_output=True, text=True, timeout=60)
+            m = re.search(r"Yosys (\d+)\.(\d+)", p.stdout + p.stderr)
+            if m:
+                ver = (int(m.group(1)), int(m.group(2)))
+        except (OSError, subprocess.SubprocessError):
+            pass
+        _YOSYS_VERSION.append(ver)
+    return _YOSYS_VERSION[0]
+
 MAX_SIGNALS = 1 << 24
 MAX_PINS = 1 << 16
 MAX_W = 256                    # ROM and port word width limit (tapnet/2 section 1.2 items 8, 9)

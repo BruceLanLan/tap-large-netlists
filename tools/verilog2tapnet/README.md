@@ -15,6 +15,14 @@ metrics, `evaluate_full`, `netlistHash2`, the canonical ROM expansion, segmentat
 with `tapnet2.decode(data, (1,))`) and loads the TAP-02 evaluator `assets/tap-02/reference.py` by path. It needs
 Python 3.9+, `yosys` and, for validation, `iverilog`/`vvp` on `PATH` (or `$YOSYS`).
 
+Minimum Yosys version: **0.69** (`MIN_YOSYS` in `verilog2tapnet.py`; the version the tool is developed and
+verified with, Results below). An older Yosys converts and passes the behavioural tests (Ubuntu 24.04's 0.33:
+all designs match iverilog beat by beat), but its ABC may map structurally identical designs to equivalent, not
+identical, NAND records (`adder8` against `adder8_swapped`), so `test_same_structure_same_records` is skipped
+below 0.69 with a message naming both versions. CI installs a pinned [OSS CAD
+Suite](https://github.com/YosysHQ/oss-cad-suite-build/releases) nightly (`2026-10-07`, Yosys 0.69+, Icarus
+Verilog included), see `docs/TESTING.md`.
+
 ### Usage
 
 ```sh
@@ -180,6 +188,10 @@ Verilog 逐拍对照仓库内的参考求值器：输出逐拍比较，RAM 存�
   缩小 75%）；16×8 数据存储器的累加器 CPU 3,374 字节（9,866，缩小 66%）。全部设计逐拍通过，RAM 内容逐拍一致。
 - 限制：单时钟、上升沿；无异步复位、三态、透明锁存器、组合环；RAM 必须从零开始；门数依赖 Yosys 版本，测试只断言
   行为与记录种类；`tapnet/2` 的结构哈希尚未定义。
+- Yosys 最低版本 **0.69**（`verilog2tapnet.py` 的 `MIN_YOSYS`，即开发与验证所用版本）。更旧的 Yosys 也能转换并通过
+  逐拍行为测试（Ubuntu 24.04 的 0.33：全部设计与 iverilog 逐拍一致），但其 ABC 可能把结构相同的设计映射成等价
+  而非完全相同的 NAND 记录（`adder8` 与 `adder8_swapped`），因此 `test_same_structure_same_records` 在 0.69 以下
+  跳过并给出版本说明。CI 安装固定版本的 OSS CAD Suite（`2026-10-07`，含 Yosys 0.69+ 与 Icarus Verilog）。
 
 运行：`cd tools/verilog2tapnet && python3 -m unittest discover -s tests -v`（21 项，约 10 秒），
 `python3 validate.py`（全部设计与表格，约 90 秒）。

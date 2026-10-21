@@ -124,7 +124,8 @@ All four ran with the results shown in the comments.
 
 ## 6. Verilog converter
 
-Needs `yosys` and Icarus Verilog (`iverilog`, `vvp`) on `PATH`; local run with Yosys 0.69 and Icarus Verilog 13.0.
+Needs `yosys` (minimum 0.69, `MIN_YOSYS` in `verilog2tapnet.py`) and Icarus Verilog (`iverilog`, `vvp`) on
+`PATH`; local run with Yosys 0.69 and Icarus Verilog 13.0.
 
 ```
 cd tools/verilog2tapnet
@@ -134,16 +135,19 @@ python3 validate.py
 
 | Check | Result |
 |---|---|
-| `tests/test_verilog2tapnet.py` | 21 tests, OK (about 10 s), Python 3.9.6 and 3.11.15: every design converts, is valid under `tapnet2.decode`, and matches iverilog beat by beat (two seeds); RAM contents compared on every beat; a memory bit flipped in the tapnet run is caught at the next beat; record kinds of the RAM and ROM-port designs; RAM builds smaller than LATCH builds; the output tail; nine unsupported designs rejected with a clear message |
+| `tests/test_verilog2tapnet.py` | 21 tests, OK (about 10 s), Python 3.9.6 and 3.11.15: every design converts, is valid under `tapnet2.decode`, and matches iverilog beat by beat (two seeds); RAM contents compared on every beat; a memory bit flipped in the tapnet run is caught at the next beat; record kinds of the RAM and ROM-port designs; RAM builds smaller than LATCH builds; the output tail; nine unsupported designs rejected with a clear message. `test_same_structure_same_records` (same NAND records for renamed / operand-swapped designs) needs Yosys >= 0.69 and is skipped under an older one with a message naming both versions (Yosys 0.33's ABC maps `adder8_swapped` to equivalent but not identical records; its beat-by-beat check still runs) |
 | `validate.py` | 24 conversions of 20 designs and 5 LATCH builds, each 1,000 beats (exhaustive for small combinational designs) plus the `--best` variant; about 90 s; writes `out/` (not committed: sizes depend on the Yosys version) and prints the tables of `tools/verilog2tapnet/README.md` |
 
 The tests assert behaviour, record kinds and bounds, not exact gate counts, because those depend on the Yosys and
-ABC version (CI uses the older Ubuntu package).
+ABC version.
 
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs sections 1, 3 (`gen_diff.py`, `game_gen.py`), 4 (`test_cartridge.py`), 4b
 (`test_inference.py`, `mlp_report.py`) and the first three scripts of section 5 on Python 3.9 and 3.11, and section
 2 with Foundry 1.8.3, and fails if any generated file differs from the committed one. The job `verilog2tapnet`
-installs `yosys` and `iverilog` from the Ubuntu 24.04 packages, runs the unit tests of section 6 (not
-`validate.py`) and the `ConverterTests` of section 4b. It has not run yet: the repository has no remote.
+installs the pinned [OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build/releases) nightly
+`2026-10-07` (linux-x64; Yosys 0.69+ with ABC, Icarus Verilog; only its `bin/` is put on `PATH`, so the tests
+run under the job's Python 3.11), prints the tool versions, and runs the unit tests of section 6 (not
+`validate.py`) and the `ConverterTests` of section 4b. The Ubuntu 24.04 package (Yosys 0.33) is not used: with
+it every design still matched iverilog, but `test_same_structure_same_records` failed (section 6).
