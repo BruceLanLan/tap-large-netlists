@@ -2,8 +2,8 @@
 
 [中文](#中文) · [English](#english)
 
-> **Status / 状态:** Draft TAP, not yet submitted · not deployed · reviewed internally twice, not externally audited
-> 草案 TAP，尚未提交 · 未部署 · 已做两轮内部审查，未经外部审计
+> **Status / 状态:** Draft TAP submitted to TapeOutProtocol/TAPs, ready for editor review (proposal name TAP-7007, number requested) · not deployed · reviewed internally, not externally audited
+> 草案 TAP，已提交到 TapeOutProtocol/TAPs，等待编辑审核（提案名 TAP-7007，申请编号）· 未部署 · 已做内部审查，未经外部审计
 
 ---
 

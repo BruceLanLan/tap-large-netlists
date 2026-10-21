@@ -38,6 +38,8 @@ A concrete example is the INT-C16 design published by its author at https://jogj
 
 This TAP adds those three pieces as a standard of its own. It changes nothing in TAP-02 or in `tapnet/1`, and apart from the metadata members of §2.2, which apply only to netlist-bound NFTs, it depends on no NFT standard; the informative §8 describes how netlist-bound NFTs could use it.
 
+ERC-7007 standardises verifiable AI-generated content, whose correctness is settled by zkML or opML proofs, the latter with a challenge period in which anyone can dispute a result. This TAP provides the same kind of settlement for runs of TapeOut netlists, including inference circuits: a run too large for one transaction is settled by a challenge, a bisection and a one-step verifier. The authors therefore request the number 7007 (proposal name TAP-7007, mirroring ERC-7007); because TAP-01 §6.1 otherwise assigns the lowest free number above 10, this needs the editors' agreement. Until a number is assigned, the draft keeps the file name `TAP-draft-large-netlists.md` and `tap: TBD`; the editors assign the final number, and if it differs, the draft takes that number.
+
 ## Specification
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119 and RFC 8174 when, and only when, they appear in all capitals.

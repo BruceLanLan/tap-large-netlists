@@ -40,6 +40,8 @@ TapeOut 网表是一串 NAND 与 LATCH 记录（TAP-02）。要标识、存储�
 
 本 TAP 作为一份独立标准补上这三样东西。它不改变 TAP-02 或 `tapnet/1` 的任何内容；除 §2.2 中只适用于网表绑定 NFT 的元数据成员外，它不依赖任何 NFT 标准；信息性的 §8 说明网表绑定 NFT 可以如何使用它。
 
+ERC-7007 规范了可核验的 AI 生成内容，其正确性由 zkML 或 opML 证明裁定，后者设有挑战期，任何人都可在其中对结果提出争议。本 TAP 为 TapeOut 网表的运行（包括推理电路）提供同类的裁定方式：一笔交易容纳不下的运行，通过挑战、二分和单步验证器来裁定。因此，作者申请编号 7007（提案名称 TAP-7007，与 ERC-7007 相呼应）；由于 TAP-01 §6.1 原本分配 10 以上最小的空闲编号，这需要编辑同意。在分配编号之前，本草案保留文件名 `TAP-draft-large-netlists.md` 和 `tap: TBD`；最终编号由编辑分配，若与所申请的不同，本草案改用该编号。
+
 ## 规范
 
 本文中的关键词 "MUST"、"MUST NOT"、"REQUIRED"、"SHALL"、"SHALL NOT"、"SHOULD"、"SHOULD NOT"、"RECOMMENDED"、"NOT RECOMMENDED"、"MAY" 与 "OPTIONAL"，当且仅当以全大写出现时，按 RFC 2119 与 RFC 8174 的描述解释。
