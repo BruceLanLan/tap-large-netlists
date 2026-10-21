@@ -14,7 +14,8 @@ All notable changes to this repository. The TAP text is a draft; its number is a
   `deployments/<chainId>.inference.json`). `gen_transcript.py` writes the transactions (`transcript.json`) from the
   same mirror as `game_gen.py` and `--check`s them against `game_moves.bin`; `collect_evidence.py` turns the broadcast
   records into `evidence-<chainId>.json` and the evidence paragraph (zh + en). `anvil-inference-e2e.sh` runs it all
-  against anvil (B rejected, A accepted, also on a `FAST_PARAMS` deployment); the CI job `forge` runs it.
+  against anvil (B rejected, A accepted; also on a `FAST_PARAMS` deployment with an input provider, case (b),
+  18 and 3 transactions); the CI job `forge` runs it.
 - `DeployLargeNetlists.s.sol`: `FAST_PARAMS=true` deploys a variant with a 10-minute challenge window into the
   section `largeNetlistsFast` (the default record is never overwritten). No contract code changed.
 - `foundry.toml`: read access to `demo/inference/build` and `demo/inference/onchain` for the script.

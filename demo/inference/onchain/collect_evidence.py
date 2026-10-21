@@ -138,6 +138,7 @@ def main(argv=None):
                             break
                     if pending_pub is not None and rec["claimId"] is not None:
                         pending_pub["claimId"] = rec["claimId"]
+                        pending_pub["scenario"] = claims.get(rec["claimId"], (None,))[0]
                         pending_pub = None
                 elif fn == "publishInputs":
                     pending_pub = rec

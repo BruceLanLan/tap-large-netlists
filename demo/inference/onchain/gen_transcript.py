@@ -14,7 +14,7 @@ id only), so they are encoded as zero here and patched in place by the script (`
 challenger). The deployed game decides the input case of §7.1: both claim variants are recorded (`calldataCaseA`,
 inputs in the claim; `calldataCaseB`, `publishInputs` by the input provider first).
 
-    python3 gen_transcript.py           # writes transcript.json next to this file (about 30 s)
+    python3 gen_transcript.py           # writes transcript.json next to this file (a few seconds)
     python3 gen_transcript.py --check   # also asserts the moves equal those in contracts/test/data/game_moves.bin
 """
 import json

@@ -29,7 +29,9 @@ script patches those two words into the calldata. The game decides the input cas
 | A. Honest claim, nobody challenges | claimant: `claim`; anyone: `accept` after the window | **2** | **597,963** (`claim` 543,229; `accept` 54,734) | claim **Accepted**; the claimant's bond is credited back |
 
 Totals: 27 transactions and 23,005,034 gas for upload + B + A; 19 transactions and 22,407,071 gas for upload + B
-alone. At BSC Testnet's 0.1 gwei that is about 0.0023 tBNB for everything, plus two bonds of `game.bond()`
+alone. On a case-(b) deployment (`INPUT_PROVIDER` set) the provider's `publishInputs` (35,984 gas) precedes each
+claim and the claim is cheaper (about 235k, no inputs on chain): B is then 18 transactions and 2,682,565 gas, A 3
+transactions and 325,971 gas (anvil, `FAST_PARAMS=true INPUT_PROVIDER=…`; the local test runs both deployments). At BSC Testnet's 0.1 gwei that is about 0.0023 tBNB for everything, plus two bonds of `game.bond()`
 (0.01 tBNB each by default; the claimant's bond is lost in B and returned in A, the challenger's is returned
 with the claimant's). `claim` costs more here than in `inference_gas.csv` (560k against 235k) because the case-(a)
 claim carries the inputs and the game hashes the 92 input leaves; everything else matches the test's figures.
@@ -87,7 +89,9 @@ scenario (by claim id), role and function, reads `claimOf`/`outcomeOf` back from
 `demo/inference/onchain/evidence-97.json`. `DRY=1` simulates without sending. Other knobs: `STEP=upload|claim|
 dispute|accept`, `CLAIM_ID` (name an existing claim when the state file is lost), `START_MOVE` (resume a dispute
 from a transcript index; normally `FORGE_SCRIPT_FLAGS=--resume` is the right tool), `FORGE_SCRIPT_FLAGS=--legacy`
-for an RPC without EIP-1559.
+for an RPC without EIP-1559. The state file is written only by a real broadcast (never by `DRY=1`), but a
+broadcast interrupted after the claim leaves it ahead of the chain: repair with `--resume`, which sends the
+transactions the record shows as unsent.
 
 X Layer Testnet (1952) works the same with `RPC_URL=https://testrpc.xlayer.tech`.
 
@@ -123,7 +127,7 @@ false, and the game rejected the claim (`claimOf(<ID>).status = Rejected`, `outc
 | `transcript.json` | the transactions: calldata, decoded arguments, sender role, expected index at each reveal, expected outcome |
 | `contracts/script/RunInferenceDispute.s.sol` | the forge script: deployment file → upload if absent → claim → dispute or accept; asserts every expectation against the chain |
 | `contracts/script/run-inference-dispute.sh` | the one command (forge script + evidence collection) |
-| `contracts/script/anvil-inference-e2e.sh` | the local end-to-end test (deploys to anvil, runs B and A, warps the clock, asserts Rejected / Accepted); the CI job `forge` runs it |
+| `contracts/script/anvil-inference-e2e.sh` | the local end-to-end test: deploys to anvil twice (default, case (a); `FAST_PARAMS` with an input provider, case (b)), runs B and A on both, warps the clock past the windows, checks that a dry run writes no state, and asserts Rejected / Accepted and the transaction counts from the evidence file (that Python block is the gate; forge's own output is filtered); the CI job `forge` runs it |
 | `collect_evidence.py` | broadcast records → `evidence-<chainId>.json` + the paragraph above |
 
 What the game's rules make impossible in one sitting: only the acceptance of an unchallenged claim, which needs the
@@ -148,7 +152,9 @@ whole bisection and the rejecting verifier call, is sequential and immediate.
 | B. 类别谎言，诚实挑战者 | 申领者：`claim`、`commitBeats`、2 × `revealBeat`、`commitTuples`、3 × `revealSeg`、`proveSegment`（9 笔）；挑战者：`challenge`、`commitBeats`、2 × `revealBeat`、`commitTuples`、3 × `revealSeg`（8 笔） | **17** | **2,934,657**：`claim` 560,329 · `challenge` 143,540 · `commitBeats` 72,002 / 90,024 · `revealBeat` 68,985 / 55,027 / 51,798 / 60,078 · `commitTuples` 369,622 / 124,979 · `revealSeg` 54,332 / 65,955 / 54,459 / 58,451 / 54,471 / 58,024 · `proveSegment` 992,581 | 9 轮；第 90 拍的最终调用 `verify_segment(seg_2 → seg_3)`（见证 776 字节）返回 false；申领 **Rejected**，`outcomeOf` = 挑战者，`VerifierFalse`；挑战者获两份保证金 |
 | A. 诚实申领，无人挑战 | 申领者：`claim`；任何人：窗口过后 `accept` | **2** | **597,963**（`claim` 543,229；`accept` 54,734） | 申领 **Accepted**；申领者保证金退回 |
 
-合计：上传 + B + A 共 27 笔交易、23,005,034 gas；上传 + B 为 19 笔、22,407,071 gas。按 BSC 测试网 0.1 gwei 计约 0.0023 tBNB，
+合计：上传 + B + A 共 27 笔交易、23,005,034 gas；上传 + B 为 19 笔、22,407,071 gas。情形 (b) 的部署（设了 `INPUT_PROVIDER`）
+每次申领前多一笔提供者的 `publishInputs`（35,984 gas），申领本身更便宜（约 235k，输入不上链）：B 为 18 笔、2,682,565 gas，
+A 为 3 笔、325,971 gas（anvil，`FAST_PARAMS=true INPUT_PROVIDER=…`；本地测试两种部署都跑）。按 BSC 测试网 0.1 gwei 计约 0.0023 tBNB，
 另加两份 `game.bond()` 保证金（默认各 0.01 tBNB；B 中申领者的保证金判给挑战者，A 中退回）。这里的 `claim` 比
 `inference_gas.csv` 贵（560k 对 235k），因为情形 (a) 的申领自带输入且游戏要哈希 92 个输入叶；其余各步与测试数字一致。
 `forge script` 的预估约为回执的 1.3 倍，按预估准备余额。
@@ -197,7 +203,8 @@ SCENARIO=A STEP=accept contracts/script/run-inference-dispute.sh
 然后运行 `collect_evidence.py`：合并该链的全部广播记录，按申领 id 把每笔交易归入场景、标出角色与函数，只读回读
 `claimOf`/`outcomeOf`，写出 `demo/inference/onchain/evidence-97.json`。`DRY=1` 只模拟不发送。其他开关：`STEP=upload|claim|
 dispute|accept`，`CLAIM_ID`（状态文件丢失时指定已有申领），`START_MOVE`（从转录的某个下标续跑争议；通常
-`FORGE_SCRIPT_FLAGS=--resume` 才是对的工具），`FORGE_SCRIPT_FLAGS=--legacy` 用于不支持 EIP-1559 的 RPC。
+`FORGE_SCRIPT_FLAGS=--resume` 才是对的工具），`FORGE_SCRIPT_FLAGS=--legacy` 用于不支持 EIP-1559 的 RPC。状态文件只在真正广播时写入（`DRY=1` 从不写），但申领之后中断的广播
+会让它领先于链上状态：用 `--resume` 修复，它会补发记录中尚未发出的交易。
 
 X Layer 测试网（1952）用 `RPC_URL=https://testrpc.xlayer.tech`，其余相同。
 
@@ -230,7 +237,7 @@ https://testnet.bscscan.com/tx/<hash>；完整清单在 `demo/inference/onchain/
 | `transcript.json` | 全部交易：calldata、解码后的参数、发送角色、每次揭示时游戏应要求的下标、预期结果 |
 | `contracts/script/RunInferenceDispute.s.sol` | forge 脚本：读部署文件 → 缺则上传 → 申领 → 争议或接受；逐项对链上状态断言 |
 | `contracts/script/run-inference-dispute.sh` | 一条命令（forge script + 证据收集） |
-| `contracts/script/anvil-inference-e2e.sh` | 本地端到端测试（部署到 anvil，跑 B 和 A，拨快时钟，断言 Rejected / Accepted）；CI 的 `forge` 作业运行它 |
+| `contracts/script/anvil-inference-e2e.sh` | 本地端到端测试：向 anvil 部署两套（默认，情形 (a)；`FAST_PARAMS` 加输入提供者，情形 (b)），在两套上跑 B 和 A，拨快时钟越过窗口，检查 dry run 不写状态，并按证据文件断言 Rejected / Accepted 与交易数（这段 Python 是判定点；forge 自身输出经 grep 过滤）；CI 的 `forge` 作业运行它 |
 | `collect_evidence.py` | 广播记录 → `evidence-<chainId>.json` + 上面的段落 |
 
 游戏规则下唯一不能一次完成的：无人挑战的申领要等挑战窗口过去才能接受（默认 24 小时，`FAST_PARAMS` 下 10 分钟）。其余一切，

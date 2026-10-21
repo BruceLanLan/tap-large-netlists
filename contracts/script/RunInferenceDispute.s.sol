@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Script} from "forge-std/Script.sol";
+import {VmSafe} from "forge-std/Vm.sol";
 import {console2 as console} from "forge-std/console2.sol";
 import {TapLargeNetlistStoreOwned} from "../src/TapLargeNetlistStore.sol";
 import {TapLargeVerifier} from "../src/TapLargeVerifier.sol";
@@ -394,7 +395,14 @@ contract RunInferenceDispute is Script {
         revert(string.concat("unknown function in the transcript: ", fn));
     }
 
+    /// The state file is written only when the transactions are really sent: a dry run (no --broadcast) must not
+    /// record a claim id that never reached the chain. An interrupted broadcast can still leave the file ahead of
+    /// the chain; `forge script --resume` sends the missing transactions.
     function _save(string memory status) internal {
+        if (vm.isContext(VmSafe.ForgeContext.ScriptDryRun)) {
+            console.log("dry run: state file not written");
+            return;
+        }
         TapLargeDisputeGame.Claim memory cl = c.game.claimOf(c.claimId);
         string memory o = string.concat("state_", c.stateKey);
         vm.serializeUint(o, "chainId", block.chainid);
